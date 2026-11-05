@@ -63,6 +63,16 @@ pub fn palette(dark: bool) -> Palette {
     }
 }
 
+/// Alt+digit shortcuts for the special characters, in the order of the symbol buttons.
+pub const SYMBOL_KEYS: &[(Key, &str)] = &[
+    (Key::Num1, "∈"),
+    (Key::Num2, "∀"),
+    (Key::Num3, "∃"),
+    (Key::Num4, "≠"),
+    (Key::Num5, "≤"),
+    (Key::Num6, "≥"),
+];
+
 pub const HEADERS: &[&str] = &[
     "Be", "Sa", "Ki", "Fv", "Ef", "Uf", "In", "Aux", "Out", "Fn", "Pre", "Post",
 ];
@@ -542,6 +552,29 @@ pub fn code_editor(
         comp.items.clear();
     }
 
+    // Alt+1 … Alt+6 insert ∈ ∀ ∃ ≠ ≤ ≥ (the order of the symbol buttons)
+    if focused && lang == Lang::Spec {
+        let typed = ui.input_mut(|i| {
+            let hit = SYMBOL_KEYS
+                .iter()
+                .find(|(k, _)| i.consume_key(Modifiers::ALT, *k))
+                .map(|(_, s)| *s);
+            if hit.is_some() {
+                // some platforms also send the digit as typed text
+                i.events.retain(
+                    |e| !matches!(e, egui::Event::Text(t) if t.chars().all(|c| c.is_ascii_digit())),
+                );
+            }
+            hit
+        });
+        if let Some(sym) = typed {
+            let n = text.chars().count();
+            let (a, b) = cursor_of(ui.ctx(), id).unwrap_or((n, n));
+            replace(ui.ctx(), id, text, a, b, sym);
+            comp.items.clear();
+        }
+    }
+
     // Tab inserts two spaces: a real tab character is invalid in YAML test data
     if focused && !open && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Tab)) {
         let n = text.chars().count();
@@ -885,6 +918,24 @@ mod tests {
             assert_eq!(highlight_data(&t, f.clone(), &p, &[2]).text, t);
             let _ = scan_symbols(&t);
         }
+    }
+
+    #[test]
+    fn alt_digits_insert_symbols() {
+        let mut h = harness("Uf: x");
+        h.run_steps(3);
+        for k in [
+            Key::Num1,
+            Key::Num2,
+            Key::Num3,
+            Key::Num4,
+            Key::Num5,
+            Key::Num6,
+        ] {
+            h.key_press_modifiers(Modifiers::ALT, k);
+            h.run_steps(2);
+        }
+        assert_eq!(h.state().text, "Uf: x∈∀∃≠≤≥");
     }
 
     #[test]

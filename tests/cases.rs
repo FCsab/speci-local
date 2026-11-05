@@ -504,7 +504,13 @@ fn fuzz_no_panics() {
         };
         let _ = speci_local::file::from_sp(&speci_local::file::to_sp(&doc));
         let compact = speci_local::file::to_compact(&doc);
-        assert_eq!(speci_local::file::from_clipboard(&compact).unwrap().spec.trim_end(), doc.spec.trim_end());
+        assert_eq!(
+            speci_local::file::from_clipboard(&compact)
+                .unwrap()
+                .spec
+                .trim_end(),
+            doc.spec.trim_end()
+        );
         let cut = rnd(compact.len());
         let _ = speci_local::file::from_clipboard(&compact[..cut]);
         let _ = speci_local::file::from_clipboard(&format!("SPECI1:{test}"));

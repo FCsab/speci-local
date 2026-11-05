@@ -13,6 +13,8 @@ Untick **Auto** if you'd rather evaluate manually with **Evaluate** (Ctrl+Enter)
 cargo run --release
 ```
 
+On Linux, the first start installs a desktop entry (`~/.local/share/applications/speci-local.desktop`) and an icon (`~/.local/share/icons/hicolor/256x256/apps/speci-local.png`). Wayland window managers need these to show the app's icon, and they also put speci-local in your application menu. Delete those two files to remove it again.
+
 Linux needs the usual windowing libraries (X11/Wayland, `libxkbcommon`), and the Open/Save dialogs need `xdg-desktop-portal` (standard on GNOME and KDE). Windows needs no extra setup.
 
 ## Downloads
@@ -37,6 +39,7 @@ The Release workflow then builds both platforms, runs the tests, and attaches th
 - **Copy / paste a whole project.** The copy button (Ctrl+Shift+C) puts the spec and all test cases on the clipboard as one compact line (`SPECI1:…`, compressed). It's handy for sending through chat.
   - The paste button (Ctrl+Shift+V) turns that line, or plain specification text, back into the project.
   - If the system clipboard can't be read, a box opens where you can paste with Ctrl+V instead.
+- Special characters: the symbol buttons or **Alt+1 … Alt+6** for ∈ ∀ ∃ ≠ ≤ ≥ (in that order).
 - Light, dark or system theme, and an adjustable font size.
 
 ## `.sp` files
