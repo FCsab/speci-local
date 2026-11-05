@@ -1,6 +1,7 @@
 pub mod data;
 pub mod diag;
 pub mod eval;
+pub mod file;
 pub mod parser;
 
 use diag::Diagnostic;

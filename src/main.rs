@@ -1,40 +1,45 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")] // no console window on Windows
 
+mod editor;
+
+use editor::{Completion, Item, Lang, code_editor, cursor_of, replace, scan_symbols, set_cursor};
 use eframe::egui::{
-    self, Color32, Id, RichText, TextEdit, TextStyle, text::CCursor, text::CCursorRange,
+    self, Color32, CornerRadius, Id, Margin, RichText, Stroke, TextEdit, TextStyle, Theme,
 };
 use serde::{Deserialize, Serialize};
-use speci_local::{Outcome, diag::Diagnostic, parse, run_test, scaffold};
-use std::path::PathBuf;
+use speci_local::diag::{Diagnostic, Pane};
+use speci_local::file::{Doc, from_sp, to_sp};
+use speci_local::{Outcome, parse, run_test, scaffold};
+use std::path::{Path, PathBuf};
 
 // Nerd Font icons (0xProto Nerd Font)
 const I_NEW: &str = "\u{f016}";
 const I_OPEN: &str = "\u{f07c}";
 const I_SAVE: &str = "\u{f0c7}";
 const I_RUN: &str = "\u{f04b}";
-const I_OK: &str = "\u{f00c}";
-const I_FAIL: &str = "\u{f00d}";
+const I_OK: &str = "\u{f058}";
+const I_FAIL: &str = "\u{f057}";
 const I_ADD: &str = "\u{f067}";
-const I_DEL: &str = "\u{f068}";
+const I_DEL: &str = "\u{f1f8}";
 const I_WAND: &str = "\u{f0d0}";
+const I_GEAR: &str = "\u{f013}";
+const I_SPEC: &str = "\u{f121}";
+const I_DATA: &str = "\u{f1c0}";
+const I_VIEW: &str = "\u{f0ae}";
+const I_WARN: &str = "\u{f071}";
+const I_BULB: &str = "\u{f0eb}";
 
 const GREEN: Color32 = Color32::from_rgb(46, 160, 67);
-const RED: Color32 = Color32::from_rgb(218, 54, 51);
+const RED: Color32 = Color32::from_rgb(229, 72, 77);
+const ACCENT: Color32 = Color32::from_rgb(59, 130, 246);
 
-#[derive(Serialize, Deserialize, Clone)]
-struct Doc {
-    title: String,
-    spec: String,
-    tests: Vec<String>,
-}
+const SPEC_ID: &str = "spec-editor";
 
-impl Default for Doc {
-    fn default() -> Self {
-        Doc {
-            title: String::new(),
-            spec: "Be:\nn∈N,\nszamok∈N[1..n]\n\nKi:\ndb∈N\n\nEf:\n-\n\nUf:\ndb=DARAB(i=1..n, szamok[i] mod 2 = 1)\n".into(),
-            tests: vec!["n: 5\nszamok: [3, 72, 81, 4, 5]\ndb: 3\n".into()],
-        }
+fn sample() -> Doc {
+    Doc {
+        title: "Páratlan számok".into(),
+        spec: "Be:\nn∈N,\nszamok∈N[1..n]\n\nKi:\ndb∈N\n\nEf:\n-\n\nUf:\ndb=DARAB(i=1..n, szamok[i] mod 2 = 1)\n".into(),
+        tests: vec!["n: 5\nszamok: [3, 72, 81, 4, 5]\ndb: 3\n".into()],
     }
 }
 
@@ -42,6 +47,8 @@ impl Default for Doc {
 #[serde(default)]
 struct App {
     doc: Doc,
+    /// What is on disk (or the initial state) — `doc != saved` means unsaved changes.
+    saved: Doc,
     current: usize,
     font: f32,
     show_s: bool,
@@ -52,23 +59,38 @@ struct App {
     results: Vec<Option<Outcome>>,
     #[serde(skip)]
     spec_diags: Vec<Diagnostic>,
+    /// The document as it was when last evaluated (error highlights only apply to unchanged text).
+    #[serde(skip)]
+    evaluated: Option<Doc>,
     #[serde(skip)]
     status: String,
+    #[serde(skip)]
+    comp: Completion,
+    #[serde(skip)]
+    symbols: (String, Vec<Item>),
+    #[serde(skip)]
+    applied: (f32, String),
 }
 
 impl Default for App {
     fn default() -> Self {
+        let doc = sample();
         App {
-            doc: Doc::default(),
+            saved: doc.clone(),
+            doc,
             current: 0,
-            font: 20.0,
+            font: 18.0,
             show_s: true,
             show_d: true,
             show_v: true,
             path: None,
             results: vec![],
             spec_diags: vec![],
+            evaluated: None,
             status: String::new(),
+            comp: Completion::default(),
+            symbols: (String::new(), vec![]),
+            applied: (0.0, String::new()),
         }
     }
 }
@@ -108,36 +130,110 @@ fn fonts(ctx: &egui::Context) {
     ctx.set_fonts(f);
 }
 
-/// Insert `s` at the editor's cursor (replacing any selection) and keep focus there.
-fn insert_at_cursor(ctx: &egui::Context, id: Id, text: &mut String, s: &str) {
-    let mut state = egui::text_edit::TextEditState::load(ctx, id).unwrap_or_default();
-    let n = text.chars().count();
-    let (a, b) = state
-        .cursor
-        .char_range()
-        .map(|r| {
-            let r = r.as_sorted_char_range();
-            (r.start.0.min(n), r.end.0.min(n))
-        })
-        .unwrap_or((n, n));
-    let byte = |c: usize| {
-        text.char_indices()
-            .nth(c)
-            .map(|(i, _)| i)
-            .unwrap_or(text.len())
-    };
-    let (ba, bb) = (byte(a), byte(b));
-    text.replace_range(ba..bb, s);
-    let mut cur = CCursor::default();
-    cur.index.0 = a + s.chars().count();
-    state.cursor.set_char_range(Some(CCursorRange::one(cur)));
-    state.store(ctx, id);
-    ctx.memory_mut(|m| m.request_focus(id));
+fn theme(ctx: &egui::Context, font: f32) {
+    ctx.all_styles_mut(|s| {
+        for (ts, f) in s.text_styles.iter_mut() {
+            f.size = match ts {
+                TextStyle::Heading => font + 4.0,
+                TextStyle::Small => (font * 0.72).max(10.0),
+                TextStyle::Button => font * 0.9,
+                _ => font,
+            };
+        }
+        s.spacing.item_spacing = egui::vec2(8.0, 6.0);
+        s.spacing.button_padding = egui::vec2(10.0, 5.0);
+        s.spacing.interact_size.y = font + 10.0;
+        let r = CornerRadius::same(6);
+        for w in [
+            &mut s.visuals.widgets.noninteractive,
+            &mut s.visuals.widgets.inactive,
+            &mut s.visuals.widgets.hovered,
+            &mut s.visuals.widgets.active,
+            &mut s.visuals.widgets.open,
+        ] {
+            w.corner_radius = r;
+        }
+        s.visuals.window_corner_radius = CornerRadius::same(10);
+        s.visuals.menu_corner_radius = CornerRadius::same(8);
+        s.visuals.selection.bg_fill = ACCENT.linear_multiply(0.55);
+        s.visuals.hyperlink_color = ACCENT;
+    });
+    ctx.style_mut_of(Theme::Dark, |s| {
+        let v = &mut s.visuals;
+        v.panel_fill = Color32::from_rgb(0x15, 0x17, 0x1c);
+        v.window_fill = Color32::from_rgb(0x1d, 0x20, 0x27);
+        v.extreme_bg_color = Color32::from_rgb(0x1b, 0x1e, 0x24);
+        v.faint_bg_color = Color32::from_rgb(0x22, 0x26, 0x2e);
+        v.widgets.inactive.weak_bg_fill = Color32::from_rgb(0x26, 0x2a, 0x33);
+        v.widgets.inactive.bg_fill = Color32::from_rgb(0x26, 0x2a, 0x33);
+        v.widgets.hovered.weak_bg_fill = Color32::from_rgb(0x30, 0x35, 0x40);
+        v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, Color32::from_rgb(0x2a, 0x2e, 0x37));
+    });
+    ctx.style_mut_of(Theme::Light, |s| {
+        let v = &mut s.visuals;
+        v.panel_fill = Color32::from_rgb(0xf3, 0xf4, 0xf6);
+        v.window_fill = Color32::WHITE;
+        v.extreme_bg_color = Color32::WHITE;
+        v.faint_bg_color = Color32::from_rgb(0xea, 0xec, 0xf0);
+        v.widgets.inactive.weak_bg_fill = Color32::from_rgb(0xe4, 0xe7, 0xeb);
+        v.widgets.inactive.bg_fill = Color32::from_rgb(0xe4, 0xe7, 0xeb);
+        v.widgets.hovered.weak_bg_fill = Color32::from_rgb(0xd8, 0xdc, 0xe2);
+        v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, Color32::from_rgb(0xdc, 0xdf, 0xe4));
+    });
+}
+
+/// Rounded "card" holding an editor or results.
+fn card(ui: &egui::Ui) -> egui::Frame {
+    egui::Frame::new()
+        .fill(ui.visuals().extreme_bg_color)
+        .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
+        .corner_radius(CornerRadius::same(8))
+        .inner_margin(Margin::same(4))
+}
+
+fn pane_title(ui: &mut egui::Ui, icon: &str, title: &str) {
+    ui.label(
+        RichText::new(format!("{icon}  {title}"))
+            .strong()
+            .color(ui.visuals().strong_text_color()),
+    );
+}
+
+/// char index of (line, col), both 1-based
+fn char_index(text: &str, line: usize, col: usize) -> usize {
+    let before: usize = text
+        .split('\n')
+        .take(line.saturating_sub(1))
+        .map(|l| l.chars().count() + 1)
+        .sum();
+    before + col.saturating_sub(1)
+}
+
+fn line_col(text: &str, idx: usize) -> (usize, usize) {
+    let before: Vec<char> = text.chars().take(idx).collect();
+    let line = before.iter().filter(|c| **c == '\n').count() + 1;
+    let col = before.iter().rev().take_while(|c| **c != '\n').count() + 1;
+    (line, col)
 }
 
 impl App {
+    fn dirty(&self) -> bool {
+        self.doc != self.saved
+    }
+
+    fn confirm_discard(&self) -> bool {
+        !self.dirty()
+            || rfd::MessageDialog::new()
+                .set_title("Unsaved changes")
+                .set_description("The current specification has unsaved changes. Discard them?")
+                .set_buttons(rfd::MessageButtons::YesNo)
+                .show()
+                == rfd::MessageDialogResult::Yes
+    }
+
     fn evaluate(&mut self) {
         self.results = vec![None; self.doc.tests.len()];
+        self.evaluated = Some(self.doc.clone());
         match parse(&self.doc.spec) {
             Err(d) => {
                 self.spec_diags = d;
@@ -157,285 +253,622 @@ impl App {
         }
     }
 
+    fn load(&mut self, path: &Path) {
+        match std::fs::read_to_string(path) {
+            Ok(text) => {
+                let mut doc = from_sp(&text);
+                if doc.title.is_empty() {
+                    doc.title = path
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                }
+                self.saved = doc.clone();
+                self.doc = doc;
+                self.current = 0;
+                self.results.clear();
+                self.spec_diags.clear();
+                self.evaluated = None;
+                self.path = Some(path.to_path_buf());
+                self.evaluate();
+                self.status = format!("Opened {} · {}", path.display(), self.status);
+            }
+            Err(e) => self.status = format!("Could not open {}: {e}", path.display()),
+        }
+    }
+
+    fn open(&mut self) {
+        if !self.confirm_discard() {
+            return;
+        }
+        if let Some(p) = rfd::FileDialog::new()
+            .add_filter("Specification (*.sp)", &["sp"])
+            .add_filter("All files", &["*"])
+            .pick_file()
+        {
+            self.load(&p);
+        }
+    }
+
     fn save(&mut self, as_new: bool) {
         let path = match (&self.path, as_new) {
             (Some(p), false) => Some(p.clone()),
             _ => {
                 let name = if self.doc.title.trim().is_empty() {
-                    "specification".to_string()
+                    "specification"
                 } else {
-                    self.doc.title.trim().to_string()
+                    self.doc.title.trim()
                 };
+                let name: String = name
+                    .chars()
+                    .map(|c| if "/\\:*?\"<>|".contains(c) { '_' } else { c })
+                    .collect();
                 rfd::FileDialog::new()
-                    .add_filter("Specification", &["json"])
-                    .set_file_name(format!("{name}.spec.json"))
+                    .add_filter("Specification (*.sp)", &["sp"])
+                    .set_file_name(format!("{name}.sp"))
                     .save_file()
             }
         };
-        let Some(path) = path else { return };
-        let json = serde_json::to_string_pretty(&self.doc).expect("Doc always serializes");
-        match std::fs::write(&path, json) {
+        let Some(mut path) = path else { return };
+        if path.extension().is_none_or(|e| e != "sp") {
+            path.set_extension("sp");
+        }
+        match std::fs::write(&path, to_sp(&self.doc)) {
             Ok(()) => {
-                self.status = format!("Saved to {}", path.display());
+                self.status = format!("Saved {}", path.display());
+                self.saved = self.doc.clone();
                 self.path = Some(path);
             }
             Err(e) => self.status = format!("Could not save {}: {e}", path.display()),
         }
     }
 
-    fn open(&mut self) {
-        let Some(path) = rfd::FileDialog::new()
-            .add_filter("Specification", &["json"])
-            .pick_file()
-        else {
+    fn new_doc(&mut self) {
+        if !self.confirm_discard() {
             return;
-        };
-        match std::fs::read_to_string(&path)
-            .map_err(|e| e.to_string())
-            .and_then(|s| serde_json::from_str::<Doc>(&s).map_err(|e| e.to_string()))
-        {
-            Ok(mut doc) => {
-                if doc.tests.is_empty() {
-                    doc.tests.push(String::new());
-                }
-                self.doc = doc;
-                self.current = 0;
-                self.results.clear();
-                self.spec_diags.clear();
-                self.status = format!("Opened {}", path.display());
-                self.path = Some(path);
-            }
-            Err(e) => self.status = format!("Could not open {}: {e}", path.display()),
         }
+        let doc = Doc {
+            title: String::new(),
+            spec: "Be:\n\nKi:\n\nEf:\n-\n\nUf:\n".into(),
+            tests: vec![String::new()],
+        };
+        *self = App {
+            font: self.font,
+            saved: doc.clone(),
+            doc,
+            ..App::default()
+        };
     }
 
+    fn jump(&mut self, ctx: &egui::Context, d: &Diagnostic, test: usize) {
+        if d.line == 0 {
+            return;
+        }
+        let (id, text) = match d.pane {
+            Pane::Data => {
+                self.current = test;
+                (Id::unique(("data-editor", test)), &self.doc.tests[test])
+            }
+            _ => (Id::unique(SPEC_ID), &self.doc.spec),
+        };
+        set_cursor(ctx, id, char_index(text, d.line, d.col));
+    }
+
+    fn symbols(&mut self) -> Vec<Item> {
+        if self.symbols.0 != self.doc.spec {
+            self.symbols = (self.doc.spec.clone(), scan_symbols(&self.doc.spec));
+        }
+        self.symbols.1.clone()
+    }
+
+    /// Lines to tint red in the spec editor and in test tab `test`'s data editor.
+    fn error_lines(&self, pane: Pane, test: usize) -> Vec<usize> {
+        let Some(ev) = &self.evaluated else {
+            return vec![];
+        };
+        let unchanged = match pane {
+            Pane::Spec => ev.spec == self.doc.spec,
+            _ => ev.tests.get(test) == self.doc.tests.get(test) && ev.spec == self.doc.spec,
+        };
+        if !unchanged {
+            return vec![];
+        }
+        let mut diags: Vec<&Diagnostic> = self.spec_diags.iter().collect();
+        diags.extend(
+            self.results
+                .get(test)
+                .into_iter()
+                .flatten()
+                .flat_map(|o| &o.diags),
+        );
+        diags
+            .iter()
+            .filter(|d| d.pane == pane && d.line > 0)
+            .map(|d| d.line)
+            .collect()
+    }
+
+    // ---------------------------------------------------------------- panes
+
     fn toolbar(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal_wrapped(|ui| {
-            ui.strong("Specification editor");
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new("speci")
+                    .strong()
+                    .size(self.font + 2.0)
+                    .color(ACCENT),
+            );
+            ui.label(RichText::new("local").size(self.font + 2.0).weak());
+            ui.add_space(12.0);
             ui.add(
                 TextEdit::singleline(&mut self.doc.title)
-                    .hint_text("Enter the task name...")
-                    .desired_width(260.0),
+                    .hint_text("Untitled task")
+                    .font(TextStyle::Heading)
+                    .frame(egui::Frame::NONE)
+                    .desired_width(320.0),
             );
-            ui.add(egui::Slider::new(&mut self.font, 12.0..=28.0).suffix("px"));
-            ui.toggle_value(&mut self.show_s, "S")
-                .on_hover_text("Specification pane");
-            ui.toggle_value(&mut self.show_d, "D")
-                .on_hover_text("Data pane (test cases)");
-            ui.toggle_value(&mut self.show_v, "V")
-                .on_hover_text("Evaluation pane");
-            ui.separator();
-            if ui.button(format!("{I_NEW} New")).clicked() {
-                let sure = rfd::MessageDialog::new()
-                    .set_title("New specification")
-                    .set_description("Discard the current specification and its test cases?")
-                    .set_buttons(rfd::MessageButtons::YesNo)
-                    .show();
-                if sure == rfd::MessageDialogResult::Yes {
-                    let font = self.font;
-                    *self = App {
-                        font,
-                        ..App::default()
-                    };
-                    self.doc.spec = "Be:\n\nKi:\n\nEf:\n-\n\nUf:\n".into();
-                    self.doc.tests = vec![String::new()];
+            if self.dirty() {
+                ui.label(RichText::new("●").color(ui.visuals().weak_text_color()))
+                    .on_hover_text("Unsaved changes");
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                egui::widgets::global_theme_preference_buttons(ui);
+                ui.menu_button(I_GEAR, |ui| {
+                    ui.label("Font size");
+                    ui.add(egui::Slider::new(&mut self.font, 12.0..=28.0).suffix(" px"));
+                })
+                .response
+                .on_hover_text("Settings");
+                ui.separator();
+                ui.toggle_value(&mut self.show_v, I_VIEW)
+                    .on_hover_text("Evaluation pane");
+                ui.toggle_value(&mut self.show_d, I_DATA)
+                    .on_hover_text("Test cases pane");
+                ui.toggle_value(&mut self.show_s, I_SPEC)
+                    .on_hover_text("Specification pane");
+                ui.separator();
+                if ui
+                    .button(I_SAVE)
+                    .on_hover_text("Save (Ctrl+S)\nShift-click: Save as… (Ctrl+Shift+S)")
+                    .clicked()
+                {
+                    let shift = ui.input(|i| i.modifiers.shift);
+                    self.save(shift);
                 }
-            }
-            if ui.button(format!("{I_OPEN} Open")).clicked() {
-                self.open();
-            }
-            if ui
-                .button(format!("{I_SAVE} Save"))
-                .on_hover_text("Ctrl+S")
-                .clicked()
-            {
-                self.save(false);
-            }
-            if ui.button("Save as…").clicked() {
-                self.save(true);
-            }
+                if ui
+                    .button(I_OPEN)
+                    .on_hover_text("Open a .sp file (Ctrl+O)")
+                    .clicked()
+                {
+                    self.open();
+                }
+                if ui
+                    .button(I_NEW)
+                    .on_hover_text("New specification (Ctrl+N)")
+                    .clicked()
+                {
+                    self.new_doc();
+                }
+            });
         });
     }
 
     fn spec_pane(&mut self, ui: &mut egui::Ui) {
-        let id = Id::unique("spec-editor");
+        let id = Id::unique(SPEC_ID);
         ui.horizontal(|ui| {
-            ui.strong("Specification");
-            ui.separator();
-            ui.label("Insert:");
-            for sym in ["∈", "∀", "∃", "≠", "≤", "≥"] {
-                if ui.button(sym).clicked() {
-                    insert_at_cursor(ui.ctx(), id, &mut self.doc.spec, sym);
+            pane_title(ui, I_SPEC, "Specification");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                for sym in ["≥", "≤", "≠", "∃", "∀", "∈"] {
+                    if ui
+                        .button(RichText::new(sym).monospace())
+                        .on_hover_text(format!("Insert {sym}"))
+                        .clicked()
+                    {
+                        let n = self.doc.spec.chars().count();
+                        let (a, b) = cursor_of(ui.ctx(), id).unwrap_or((n, n));
+                        replace(ui.ctx(), id, &mut self.doc.spec, a, b, sym);
+                    }
                 }
-            }
-        });
-        egui::ScrollArea::both()
-            .id_salt("spec-scroll")
-            .auto_shrink(false)
-            .show(ui, |ui| {
-                ui.add(
-                    TextEdit::multiline(&mut self.doc.spec)
-                        .id(id)
-                        .code_editor()
-                        .font(TextStyle::Monospace)
-                        .desired_width(f32::INFINITY)
-                        .desired_rows(24),
-                );
             });
+        });
+        let symbols = self.symbols();
+        let errors = self.error_lines(Pane::Spec, self.current);
+        card(ui).show(ui, |ui| {
+            egui::ScrollArea::both()
+                .id_salt("spec-scroll")
+                .auto_shrink(false)
+                .show(ui, |ui| {
+                    code_editor(
+                        ui,
+                        id,
+                        &mut self.doc.spec,
+                        Lang::Spec,
+                        &symbols,
+                        &errors,
+                        &mut self.comp,
+                        "Be:\nn∈N\n\nKi:\n…",
+                    );
+                });
+        });
     }
 
     fn data_pane(&mut self, ui: &mut egui::Ui) {
         self.current = self.current.min(self.doc.tests.len().saturating_sub(1));
+        ui.horizontal(|ui| {
+            pane_title(ui, I_DATA, "Test cases");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button(format!("{I_WAND} Scaffold")).on_hover_text("Insert `name: ` lines for every declared variable\n(Shift+Space, Tab in the ELTE editor)").clicked() {
+                    match parse(&self.doc.spec) {
+                        Ok(spec) => {
+                            let t = &mut self.doc.tests[self.current];
+                            if !t.is_empty() && !t.ends_with('\n') {
+                                t.push('\n');
+                            }
+                            t.push_str(&scaffold(&spec, t));
+                        }
+                        Err(d) => {
+                            self.spec_diags = d;
+                            self.evaluated = Some(self.doc.clone());
+                            self.status = "Fix the specification first, then scaffold".into();
+                        }
+                    }
+                }
+            });
+        });
         ui.horizontal_wrapped(|ui| {
-            ui.strong("Test cases");
-            if ui.button(I_ADD).on_hover_text("Add a test case").clicked() {
-                self.doc.tests.push(String::new());
-                self.current = self.doc.tests.len() - 1;
-            }
-            if ui.button(I_DEL).on_hover_text("Remove this test case").clicked() && self.doc.tests.len() > 1 {
-                self.doc.tests.remove(self.current);
-                if self.current < self.results.len() {
-                    self.results.remove(self.current);
-                }
-                self.current = self.current.min(self.doc.tests.len() - 1);
-            }
+            ui.spacing_mut().item_spacing.x = 4.0;
             for i in 0..self.doc.tests.len() {
-                let mut b = egui::Button::new(RichText::new((i + 1).to_string()).strong()).selected(i == self.current);
-                if let Some(Some(o)) = self.results.get(i) {
-                    b = b.fill(if o.pass { GREEN } else { RED });
-                }
+                let (fill, text) = match self.results.get(i) {
+                    Some(Some(o)) if o.pass => (GREEN, Color32::WHITE),
+                    Some(Some(_)) => (RED, Color32::WHITE),
+                    _ => (
+                        ui.visuals().widgets.inactive.weak_bg_fill,
+                        ui.visuals().text_color(),
+                    ),
+                };
+                let stroke = if i == self.current {
+                    Stroke::new(2.0, ACCENT)
+                } else {
+                    Stroke::NONE
+                };
+                let b = egui::Button::new(RichText::new((i + 1).to_string()).strong().color(text))
+                    .fill(fill)
+                    .stroke(stroke)
+                    .corner_radius(CornerRadius::same(12))
+                    .min_size(egui::vec2(34.0, 0.0));
                 if ui.add(b).clicked() {
                     self.current = i;
                 }
             }
-            if ui.button(format!("{I_WAND} Scaffold")).on_hover_text("Insert `name: ` lines for every declared variable (Shift+Space, Tab in the ELTE editor)").clicked() {
-                match parse(&self.doc.spec) {
-                    Ok(spec) => {
-                        let t = &mut self.doc.tests[self.current];
-                        if !t.is_empty() && !t.ends_with('\n') {
-                            t.push('\n');
-                        }
-                        t.push_str(&scaffold(&spec, t));
-                    }
-                    Err(d) => {
-                        self.spec_diags = d;
-                        self.status = "Fix the specification first, then scaffold".into();
-                    }
+            if ui.button(I_ADD).on_hover_text("Add a test case").clicked() {
+                self.doc.tests.push(String::new());
+                self.current = self.doc.tests.len() - 1;
+            }
+            if self.doc.tests.len() > 1
+                && ui
+                    .button(I_DEL)
+                    .on_hover_text("Delete this test case")
+                    .clicked()
+            {
+                self.doc.tests.remove(self.current);
+                if self.current < self.results.len() {
+                    self.results.remove(self.current);
                 }
+                if let Some(ev) = &mut self.evaluated
+                    && self.current < ev.tests.len()
+                {
+                    ev.tests.remove(self.current);
+                }
+                self.current = self.current.min(self.doc.tests.len() - 1);
             }
         });
         let cur = self.current;
-        egui::ScrollArea::both()
-            .id_salt("data-scroll")
-            .auto_shrink(false)
-            .show(ui, |ui| {
-                ui.add(
-                    TextEdit::multiline(&mut self.doc.tests[cur])
-                        .id(Id::unique(("data-editor", cur)))
-                        .code_editor()
-                        .font(TextStyle::Monospace)
-                        .hint_text("n: 3\nnums: [1, 2, 3]")
-                        .desired_width(f32::INFINITY)
-                        .desired_rows(16),
-                );
-            });
+        let symbols = self.symbols();
+        let errors = self.error_lines(Pane::Data, cur);
+        card(ui).show(ui, |ui| {
+            egui::ScrollArea::both()
+                .id_salt(("data-scroll", cur))
+                .auto_shrink(false)
+                .show(ui, |ui| {
+                    code_editor(
+                        ui,
+                        Id::unique(("data-editor", cur)),
+                        &mut self.doc.tests[cur],
+                        Lang::Data,
+                        &symbols,
+                        &errors,
+                        &mut self.comp,
+                        "n: 3\nnums: [1, 2, 3]",
+                    );
+                });
+        });
     }
 
     fn eval_pane(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            if ui
-                .button(RichText::new(format!("{I_RUN} Evaluate")).strong())
-                .on_hover_text("Ctrl+Enter")
-                .clicked()
-            {
+            pane_title(ui, I_VIEW, "Evaluation");
+            let run = egui::Button::new(
+                RichText::new(format!("{I_RUN}  Evaluate"))
+                    .strong()
+                    .color(Color32::WHITE),
+            )
+            .fill(ACCENT);
+            if ui.add(run).on_hover_text("Ctrl+Enter").clicked() {
                 self.evaluate();
             }
-            ui.label(&self.status);
+            let ok = self.results.iter().flatten().filter(|o| o.pass).count();
+            let bad = self.results.iter().flatten().filter(|o| !o.pass).count();
+            if ok > 0 {
+                ui.label(RichText::new(format!("{I_OK} {ok} passed")).color(GREEN));
+            }
+            if bad > 0 {
+                ui.label(RichText::new(format!("{I_FAIL} {bad} failed")).color(RED));
+            }
+            if !self.spec_diags.is_empty() {
+                ui.label(
+                    RichText::new(format!(
+                        "{I_WARN} {} problem(s) in the specification",
+                        self.spec_diags.len()
+                    ))
+                    .color(RED),
+                );
+            }
         });
-        ui.separator();
-        let mono = |s: String| RichText::new(s).monospace();
-        egui::ScrollArea::vertical()
-            .id_salt("eval-scroll")
-            .auto_shrink(false)
-            .show(ui, |ui| {
-                for d in &self.spec_diags {
-                    ui.label(mono(d.render(&self.doc.spec, "")).color(RED));
-                    ui.add_space(8.0);
+        let mut jump: Option<(Diagnostic, usize)> = None;
+        let mut select = None;
+        card(ui).inner_margin(Margin::same(10)).show(ui, |ui| {
+            egui::ScrollArea::vertical().id_salt("eval-scroll").auto_shrink(false).show(ui, |ui| {
+                if self.spec_diags.is_empty() && self.results.iter().all(Option::is_none) {
+                    ui.label(RichText::new("Press Evaluate (Ctrl+Enter) to run every test case against the specification.").weak());
                 }
-                // current tab first, then the rest
-                let order = std::iter::once(self.current)
-                    .chain((0..self.results.len()).filter(|i| *i != self.current));
+                for d in &self.spec_diags {
+                    if diag_ui(ui, d, &self.doc.spec, "") {
+                        jump = Some((d.clone(), self.current));
+                    }
+                }
+                // failures first; within each group the selected tab leads
+                let mut order: Vec<usize> = (0..self.results.len()).collect();
+                order.sort_by_key(|i| (self.results[*i].as_ref().is_some_and(|o| o.pass), *i != self.current, *i));
                 for i in order {
-                    let Some(Some(o)) = self.results.get(i) else {
-                        continue;
-                    };
-                    let (icon, word, color) = if o.pass {
-                        (I_OK, "passed", GREEN)
-                    } else {
-                        (I_FAIL, "failed", RED)
-                    };
-                    ui.label(
-                        RichText::new(format!("{icon} Test case {}: {word}", i + 1))
-                            .strong()
-                            .color(color),
-                    );
+                    let Some(Some(o)) = self.results.get(i) else { continue };
+                    let (icon, word, color) = if o.pass { (I_OK, "passed", GREEN) } else { (I_FAIL, "failed", RED) };
+                    let head = ui.add(egui::Label::new(RichText::new(format!("{icon}  Test case {}  ·  {word}", i + 1)).strong().color(color)).sense(egui::Sense::click()));
+                    if head.on_hover_text("Show this test case").clicked() {
+                        select = Some(i);
+                    }
                     let data = self.doc.tests.get(i).map(String::as_str).unwrap_or("");
-                    for d in &o.diags {
-                        ui.label(mono(d.render(&self.doc.spec, data)));
-                    }
-                    for (name, val, given) in &o.values {
-                        let src = if *given { "" } else { "  (computed)" };
-                        ui.label(mono(format!("  {name} = {val}{src}")));
-                    }
-                    for n in &o.notes {
-                        ui.label(RichText::new(format!("Note: {n}")).italics());
-                    }
+                    ui.indent(("res", i), |ui| {
+                        for d in &o.diags {
+                            if diag_ui(ui, d, &self.doc.spec, data) {
+                                jump = Some((d.clone(), i));
+                            }
+                        }
+                        if !o.values.is_empty() {
+                            egui::Grid::new(("vals", i)).num_columns(2).spacing([16.0, 2.0]).show(ui, |ui| {
+                                for (name, val, given) in &o.values {
+                                    ui.label(RichText::new(name).monospace().strong());
+                                    let mut t = RichText::new(format!("= {val}")).monospace();
+                                    if !*given {
+                                        t = t.italics();
+                                    }
+                                    let l = ui.label(t);
+                                    if !*given {
+                                        l.on_hover_text("Computed by the specification (not given in the test case)");
+                                    }
+                                    ui.end_row();
+                                }
+                            });
+                        }
+                        for n in &o.notes {
+                            ui.label(RichText::new(format!("{I_BULB} {n}")).weak());
+                        }
+                    });
                     ui.add_space(10.0);
                 }
             });
+        });
+        if let Some(i) = select {
+            self.current = i;
+        }
+        if let Some((d, i)) = jump {
+            self.jump(ui.ctx(), &d, i);
+        }
     }
+
+    fn status_bar(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            let file = match &self.path {
+                Some(p) => p.display().to_string(),
+                None => "not saved yet".into(),
+            };
+            ui.label(RichText::new(file).small().weak());
+            if self.dirty() {
+                ui.label(RichText::new("modified").small().color(ACCENT));
+            }
+            if !self.status.is_empty() {
+                ui.separator();
+                ui.label(RichText::new(&self.status).small());
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let spec_id = Id::unique(SPEC_ID);
+                let data_id = Id::unique(("data-editor", self.current));
+                let pos = [
+                    (spec_id, &self.doc.spec),
+                    (data_id, &self.doc.tests[self.current]),
+                ]
+                .into_iter()
+                .find(|(id, _)| ui.memory(|m| m.has_focus(*id)))
+                .and_then(|(id, t)| cursor_of(ui.ctx(), id).map(|c| line_col(t, c.1)));
+                if let Some((l, c)) = pos {
+                    ui.label(RichText::new(format!("Ln {l}, Col {c}")).small().weak());
+                }
+            });
+        });
+    }
+}
+
+/// One diagnostic as a card. Returns true if the user clicked "go to".
+fn diag_ui(ui: &mut egui::Ui, d: &Diagnostic, spec: &str, data: &str) -> bool {
+    let mut go = false;
+    let dark = ui.visuals().dark_mode;
+    egui::Frame::new()
+        .fill(RED.linear_multiply(if dark { 0.10 } else { 0.07 }))
+        .stroke(Stroke::new(1.0, RED.linear_multiply(0.45)))
+        .corner_radius(CornerRadius::same(6))
+        .inner_margin(Margin::symmetric(10, 8))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new(I_WARN).color(RED));
+                ui.label(RichText::new(&d.title).strong());
+                if d.line > 0 {
+                    let where_ = if d.pane == Pane::Data {
+                        "test data"
+                    } else {
+                        "spec"
+                    };
+                    if ui
+                        .link(format!("{where_} {}:{}", d.line, d.col))
+                        .on_hover_text("Go to this position")
+                        .clicked()
+                    {
+                        go = true;
+                    }
+                }
+            });
+            let src = if d.pane == Pane::Data { data } else { spec };
+            if let Some(line) = src.lines().nth(d.line.wrapping_sub(1)) {
+                let num = d.line.to_string();
+                let code = format!(
+                    "{num} │ {line}\n{} │ {}^",
+                    " ".repeat(num.len()),
+                    " ".repeat(d.col.saturating_sub(1))
+                );
+                egui::Frame::new()
+                    .fill(ui.visuals().extreme_bg_color)
+                    .corner_radius(CornerRadius::same(4))
+                    .inner_margin(Margin::symmetric(8, 4))
+                    .show(ui, |ui| {
+                        ui.label(RichText::new(code).monospace());
+                    });
+            }
+            if !d.explanation.is_empty() {
+                ui.label(&d.explanation);
+            }
+            if let Some(h) = &d.hint {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(
+                        RichText::new(format!("{I_BULB} Fix:"))
+                            .strong()
+                            .color(ACCENT),
+                    );
+                    ui.label(h);
+                });
+            }
+        });
+    ui.add_space(4.0);
+    go
 }
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let font = self.font;
-        ui.ctx().all_styles_mut(|s| {
-            for (ts, f) in s.text_styles.iter_mut() {
-                f.size = match ts {
-                    TextStyle::Heading => font + 4.0,
-                    TextStyle::Small => (font - 4.0).max(10.0),
-                    _ => font,
-                };
-            }
+        let ctx = ui.ctx().clone();
+        if self.applied.0 != self.font {
+            theme(&ctx, self.font);
+            self.applied.0 = self.font;
+        }
+        let name = self
+            .path
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_else(|| "untitled.sp".into());
+        let title = format!(
+            "{}{name} — speci-local",
+            if self.dirty() { "● " } else { "" }
+        );
+        if self.applied.1 != title {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            self.applied.1 = title;
+        }
+
+        // shortcuts (Ctrl+Shift+S must be checked before Ctrl+S)
+        let (run, save_as, save, open, new) = ctx.input_mut(|i| {
+            (
+                i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter),
+                i.consume_key(
+                    egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+                    egui::Key::S,
+                ),
+                i.consume_key(egui::Modifiers::COMMAND, egui::Key::S),
+                i.consume_key(egui::Modifiers::COMMAND, egui::Key::O),
+                i.consume_key(egui::Modifiers::COMMAND, egui::Key::N),
+            )
         });
-        if ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter)) {
+        if run {
             self.evaluate();
         }
-        if ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::S)) {
-            self.save(false);
+        if save || save_as {
+            self.save(save_as);
+        }
+        if open {
+            self.open();
+        }
+        if new {
+            self.new_doc();
+        }
+        // drag & drop a .sp file onto the window
+        if let Some(path) = ctx.input(|i| {
+            i.raw
+                .dropped_files
+                .iter()
+                .find_map(|f| Some(f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty()))
+        }) && self.confirm_discard()
+        {
+            self.load(&path);
         }
         if self.results.len() != self.doc.tests.len() {
             self.results.resize(self.doc.tests.len(), None);
         }
 
-        egui::Panel::top("toolbar").show(ui, |ui| self.toolbar(ui));
+        let bar = egui::Frame::new()
+            .fill(ui.visuals().panel_fill)
+            .inner_margin(Margin::symmetric(12, 8));
+        egui::Panel::top("toolbar")
+            .frame(bar)
+            .show(ui, |ui| self.toolbar(ui));
+        egui::Panel::bottom("status")
+            .frame(bar.inner_margin(Margin::symmetric(12, 3)))
+            .show(ui, |ui| self.status_bar(ui));
+        let pane = egui::Frame::new()
+            .fill(ui.visuals().panel_fill)
+            .inner_margin(Margin::same(10));
         if self.show_v {
             egui::Panel::bottom("eval")
+                .frame(pane)
                 .resizable(true)
-                .default_size(260.0)
+                .default_size(280.0)
                 .show(ui, |ui| self.eval_pane(ui));
         }
         if self.show_s && self.show_d {
             egui::Panel::right("data")
+                .frame(pane)
                 .resizable(true)
-                .default_size(480.0)
+                .default_size(460.0)
                 .show(ui, |ui| self.data_pane(ui));
         }
-        egui::CentralPanel::default().show(ui, |ui| {
+        egui::CentralPanel::default().frame(pane).show(ui, |ui| {
             if self.show_s {
                 self.spec_pane(ui);
             } else if self.show_d {
                 self.data_pane(ui);
+            } else {
+                ui.centered_and_justified(|ui| {
+                    ui.label(
+                        RichText::new("All editor panes are hidden. Turn one on in the toolbar.")
+                            .weak(),
+                    )
+                });
             }
         });
     }
@@ -448,19 +881,25 @@ impl eframe::App for App {
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1280.0, 860.0])
+            .with_inner_size([1360.0, 900.0])
+            .with_min_inner_size([720.0, 480.0])
             .with_title("speci-local"),
         ..Default::default()
     };
+    let file_arg = std::env::args_os().nth(1).map(PathBuf::from);
     eframe::run_native(
         "speci-local",
         options,
-        Box::new(|cc| {
+        Box::new(move |cc| {
             fonts(&cc.egui_ctx);
-            let app: App = cc
+            let mut app: App = cc
                 .storage
                 .and_then(|s| eframe::get_value(s, eframe::APP_KEY))
                 .unwrap_or_default();
+            // `speci-local file.sp` (also how double-clicking a .sp file opens it)
+            if let Some(p) = file_arg {
+                app.load(&p);
+            }
             Ok(Box::new(app))
         }),
     )

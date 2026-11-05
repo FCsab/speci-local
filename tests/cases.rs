@@ -358,3 +358,19 @@ fn err_pre_and_runtime() {
         "{m}"
     );
 }
+
+#[test]
+fn sp_file_round_trip() {
+    use speci_local::file::{Doc, from_sp, to_sp};
+    let doc = Doc {
+        title: "Odd count".into(),
+        spec: "Be: n∈N, nums∈N[1..n]\nKi: db∈N\nEf: -\nUf: db=DARAB(i=1..n, nums[i] mod 2 = 1)\n/* own comment */\n".into(),
+        tests: vec!["n: 2\nnums: [1, 2]\ndb: 1\n".into(), "n: 0\nnums: []\ndb: 0\n".into()],
+    };
+    let text = to_sp(&doc);
+    assert_eq!(from_sp(&text), doc);
+    // the .sp file is itself a valid specification (tests are comments)
+    let s = parse(&text).expect("file parses as a spec");
+    assert!(run_test(&s, &doc.tests[0]).pass);
+    assert_eq!(from_sp(&text.replace('\n', "\r\n")), doc);
+}
