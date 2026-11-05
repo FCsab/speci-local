@@ -373,4 +373,135 @@ fn sp_file_round_trip() {
     let s = parse(&text).expect("file parses as a spec");
     assert!(run_test(&s, &doc.tests[0]).pass);
     assert_eq!(from_sp(&text.replace('\n', "\r\n")), doc);
+    assert_eq!(from_sp(&format!("\u{feff}{text}")), doc);
+}
+
+#[test]
+fn review_regressions() {
+    // binding through `or` + ∃ with the output omitted (no env cloning any more)
+    let rel = "Be: n∈N, k∈N, ar∈N[1..n]\nKi: sorszam∈Z\nEf: -\nUf: (sorszam=-1 and ∀i∈[1..n]:(ar[i]>=k)) or ∃i∈[1..n]:(sorszam=i and ar[i]<k and ∀j∈[1..i-1]:(ar[j]>=k))";
+    let s = parse(rel).unwrap();
+    for (data, want) in [
+        ("n: 4\nk: 5000\nar: [6000, 3000, 1000, 200]", "2"),
+        ("n: 2\nk: 1\nar: [5, 6]", "-1"),
+    ] {
+        let o = run_test(&s, data);
+        assert!(o.pass);
+        assert_eq!(o.values[0].1, want, "{data}");
+    }
+    // computed value outside its declared set is reported
+    let s = parse("Be: n∈N\nKi: x∈N\nEf: -\nUf: x=n-5").unwrap();
+    let o = run_test(&s, "n: 1");
+    assert!(
+        o.notes.iter().any(|n| n.contains("negative")),
+        "{:?}",
+        o.notes
+    );
+    // integer edge cases must not panic
+    let s = parse("Be: a∈Z, b∈Z\nKi: x∈Z\nEf: -\nUf: x=a mod b and (b|a or true) and a=a").unwrap();
+    let _ = run_test(&s, "a: -9223372036854775808\nb: -1");
+    // huge ranges are refused instead of allocating gigabytes
+    let s = parse("Be: n∈N\nKi: y∈N[1..n]\nEf: -\nUf: y=COPY(i=1..n, i)").unwrap();
+    let m = render(&run_test(&s, "n: 100000000000").diags, "", "");
+    assert!(m.contains("too large"), "{m}");
+    // `exists` used as a variable in a formula gets the reserved-word explanation
+    let m = spec_err("Be: n∈N\nKi: ind∈N\nEf: -\nUf: (exists,ind)=SEARCH(i=1..n, i>2)");
+    assert!(m.contains("`exists` is a reserved word"), "{m}");
+    // undeclared names in type bounds are caught statically
+    let m = spec_err("Be: n∈N, ar∈N[1..m]\nKi: x∈N\nEf: -\nUf: x=n and ar=ar");
+    assert!(m.contains("`m` is not declared"), "{m}");
+    // columns after a multi-byte block comment point at the right character
+    let m = spec_err("Be: n∈N\nKi: x∈N\nEf: -\nUf: /* ő */ x=nn");
+    assert!(m.contains("column 15"), "{m}");
+    // data errors point at the top-level key, not a nested field with the same name
+    let s = parse("Be: n∈N, r∈R2[1..n], R2=(n:N x m:N)\nKi: x∈N\nEf: -\nUf: x=n and r=r").unwrap();
+    let m = render(
+        &run_test(&s, "r:\n  - n: 1\n    m: 2\nn: -1\nx: 1").diags,
+        "",
+        "n: x",
+    );
+    assert!(m.contains("line 4"), "{m}");
+}
+
+/// Randomly corrupted specifications and test data must never panic.
+#[test]
+fn fuzz_no_panics() {
+    let specs = [
+        "Be:\nn∈N,\nk∈N,\nar∈N[1..n],\negyeb∈N\n\nSa:\nvan∈L,\nind∈N\n\nKi:\nsorszam∈Z,\ndb∈N\n\nFv:\nkisebb:N->L,\nkisebb(i)=ar[i]<k\n\nEf:\n1<=n<=100 and ∀i∈[1..n]:(1<=ar[i])\n\nUf:\n(van,ind)=SEARCH(i=1..n, kisebb(i)) and\n(van -> sorszam=ind) and\n(not van -> sorszam=-1) and\ndb=DARAB(i=1..n, ar[i]<k) and\negyeb=egyeb // é\n",
+        "In: n∈N, pl∈Tpl[1..n], Tpl=(name:S x x:N x y:N)\nAux: van∈L, ind∈N\nOut: lib∈S\nPre: ∀i∈[1..n]: (pl[i].x≥0)\nPost: (van,ind)=SEARCH(i=1..n-1,pl[i].y<pl[i+1].y) and van → lib=pl[ind].name /* ő */",
+        "In: n∈N, m∈N, map∈N[1..n,1..m]\nOut: mpx∈N, mpy∈N\nFn: maxcol: N→N x N, maxcol(i)=MAX(j=1..m,map[i,j])\nPre: -\nPost: (mpx,)=MAX(i=1..n,maxcol(i).maxval) and mpy=maxcol(mpx).maxind and (3,5).1=3 and \"a\"=\"a\"",
+    ];
+    let data = [
+        "n: 6\nk: 2000\nar: [2500, 5300, 1900, 2400, 8800, 1000]\negyeb: 0\nsorszam: 3\ndb: 2",
+        "n: 2\npl: [{name: \"L1\", x: 12, y: 24}, {name: L2, x: 5, y: 15}]\nlib: \"\"",
+        "n: 2\nm: 2\nmap: [[7, 7], [7, 8]]\nmpx: 2",
+    ];
+    let pieces = [
+        "(",
+        ")",
+        "[",
+        "]",
+        ",",
+        "..",
+        "∈",
+        "∀",
+        "∃",
+        "→",
+        "-",
+        "\"",
+        "/*",
+        "*/",
+        "//",
+        "\n",
+        "é",
+        "1",
+        "i",
+        "=",
+        ":",
+        ".",
+        "MAX(",
+        "x",
+        " ",
+        "-9223372036854775808",
+        "{",
+        "- ",
+        "#",
+    ];
+    let mut seed: u64 = 0x5eed;
+    let mut rnd = |n: usize| {
+        seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        ((seed >> 33) as usize) % n.max(1)
+    };
+    for round in 0..6000 {
+        let k = round % specs.len();
+        let (mut spec, mut test) = (specs[k].to_string(), data[k].to_string());
+        for _ in 0..1 + rnd(3) {
+            let target = if rnd(2) == 0 { &mut spec } else { &mut test };
+            let chars: Vec<char> = target.chars().collect();
+            let at = rnd(chars.len() + 1);
+            let mut v = chars.clone();
+            match rnd(3) {
+                0 if !v.is_empty() => {
+                    let len = 1 + rnd(4);
+                    v.drain(at.min(v.len() - 1)..(at + len).min(v.len()));
+                }
+                _ => {
+                    let p: Vec<char> = pieces[rnd(pieces.len())].chars().collect();
+                    v.splice(at..at, p);
+                }
+            }
+            *target = v.into_iter().collect();
+        }
+        if let Ok(s) = parse(&spec) {
+            let _ = run_test(&s, &test);
+        }
+        let doc = speci_local::file::Doc {
+            title: "t".into(),
+            spec: spec.clone(),
+            tests: vec![test.clone()],
+        };
+        let _ = speci_local::file::from_sp(&speci_local::file::to_sp(&doc));
+    }
 }

@@ -9,8 +9,11 @@ use eframe::egui::{
 use serde::{Deserialize, Serialize};
 use speci_local::diag::{Diagnostic, Pane};
 use speci_local::file::{Doc, from_sp, to_sp};
-use speci_local::{Outcome, parse, run_test, scaffold};
+use speci_local::{Outcome, parse, run_test_with, scaffold};
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, mpsc};
 
 // Nerd Font icons (0xProto Nerd Font)
 const I_NEW: &str = "\u{f016}";
@@ -35,6 +38,36 @@ const ACCENT: Color32 = Color32::from_rgb(59, 130, 246);
 
 const SPEC_ID: &str = "spec-editor";
 
+#[derive(Clone)]
+enum Replace {
+    New,
+    Open,
+    Load(PathBuf),
+}
+
+type EvalResult = Result<Vec<Outcome>, Vec<Diagnostic>>;
+
+/// An evaluation running on a worker thread.
+struct Job {
+    doc: Doc,
+    cancel: Arc<AtomicBool>,
+    rx: mpsc::Receiver<EvalResult>,
+    started: f64,
+}
+
+impl Drop for Job {
+    fn drop(&mut self) {
+        // a newer edit superseded this run: let the worker stop early
+        self.cancel.store(true, Ordering::Relaxed);
+    }
+}
+
+fn doc_hash(d: &Doc) -> u64 {
+    let mut h = std::hash::DefaultHasher::new();
+    (&d.spec, &d.tests).hash(&mut h);
+    h.finish()
+}
+
 fn sample() -> Doc {
     Doc {
         title: "Páratlan számok".into(),
@@ -55,8 +88,20 @@ struct App {
     show_d: bool,
     show_v: bool,
     path: Option<PathBuf>,
+    /// Re-evaluate automatically shortly after every change.
+    auto: bool,
     #[serde(skip)]
     results: Vec<Option<Outcome>>,
+    #[serde(skip)]
+    job: Option<Job>,
+    #[serde(skip)]
+    confirm: Option<Replace>,
+    /// (hash of the document, time it last changed)
+    #[serde(skip)]
+    last_change: (u64, f64),
+    /// hash of the document the last evaluation was started for
+    #[serde(skip)]
+    submitted: u64,
     #[serde(skip)]
     spec_diags: Vec<Diagnostic>,
     /// The document as it was when last evaluated (error highlights only apply to unchanged text).
@@ -84,7 +129,12 @@ impl Default for App {
             show_d: true,
             show_v: true,
             path: None,
+            auto: true,
             results: vec![],
+            job: None,
+            confirm: None,
+            last_change: (0, 0.0),
+            submitted: 0,
             spec_diags: vec![],
             evaluated: None,
             status: String::new(),
@@ -221,36 +271,132 @@ impl App {
         self.doc != self.saved
     }
 
-    fn confirm_discard(&self) -> bool {
-        !self.dirty()
-            || rfd::MessageDialog::new()
-                .set_title("Unsaved changes")
-                .set_description("The current specification has unsaved changes. Discard them?")
-                .set_buttons(rfd::MessageButtons::YesNo)
-                .show()
-                == rfd::MessageDialogResult::Yes
+    /// Run an action that replaces the document, asking first if there are unsaved changes.
+    fn replace_doc(&mut self, action: Replace) {
+        if self.dirty() {
+            self.confirm = Some(action);
+            return;
+        }
+        match action {
+            Replace::New => self.new_doc(),
+            Replace::Open => {
+                if let Some(p) = rfd::FileDialog::new()
+                    .add_filter("Specification (*.sp)", &["sp"])
+                    .add_filter("All files", &["*"])
+                    .pick_file()
+                {
+                    self.load(&p);
+                }
+            }
+            Replace::Load(p) => self.load(&p),
+        }
     }
 
-    fn evaluate(&mut self) {
-        self.results = vec![None; self.doc.tests.len()];
-        self.evaluated = Some(self.doc.clone());
-        match parse(&self.doc.spec) {
+    /// The "unsaved changes" dialog (in-app, so it works without zenity/kdialog on Linux).
+    fn confirm_dialog(&mut self, ctx: &egui::Context) {
+        let Some(action) = self.confirm.clone() else {
+            return;
+        };
+        let mut choice = None;
+        let modal = egui::Modal::new(Id::unique("discard-dialog")).show(ctx, |ui| {
+            ui.set_width(420.0);
+            ui.heading("Unsaved changes");
+            ui.label("The current specification has changes that are not saved yet.");
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                if ui.button(format!("{I_SAVE}  Save first")).clicked() {
+                    choice = Some("save");
+                }
+                if ui.button("Discard changes").clicked() {
+                    choice = Some("discard");
+                }
+                if ui.button("Cancel").clicked() {
+                    choice = Some("cancel");
+                }
+            });
+        });
+        if modal.should_close() && choice.is_none() {
+            choice = Some("cancel");
+        }
+        match choice {
+            Some("save") => {
+                self.confirm = None;
+                self.save(false);
+                if !self.dirty() {
+                    self.replace_doc(action);
+                }
+            }
+            Some("discard") => {
+                self.confirm = None;
+                self.saved = self.doc.clone(); // nothing left to protect
+                self.replace_doc(action);
+            }
+            Some(_) => self.confirm = None,
+            None => {}
+        }
+    }
+
+    /// Start evaluating the current document in the background (replacing any running evaluation).
+    fn evaluate(&mut self, now: f64) {
+        let doc = self.doc.clone();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let (tx, rx) = mpsc::channel();
+        let (d, c) = (doc.clone(), cancel.clone());
+        // big stack: deeply nested formulas and recursive functions are evaluated recursively
+        let spawned = std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(move || {
+                let r = parse(&d.spec).map(|spec| {
+                    d.tests
+                        .iter()
+                        .map(|t| run_test_with(&spec, t, &c))
+                        .collect()
+                });
+                if !c.load(Ordering::Relaxed) {
+                    let _ = tx.send(r);
+                }
+            });
+        self.submitted = doc_hash(&doc);
+        match spawned {
+            Ok(_) => {
+                self.job = Some(Job {
+                    doc,
+                    cancel,
+                    rx,
+                    started: now,
+                })
+            }
+            Err(e) => self.status = format!("Could not start the evaluation: {e}"),
+        }
+    }
+
+    /// Pick up a finished background evaluation.
+    fn poll_job(&mut self) {
+        let Some(job) = &self.job else { return };
+        let r = match job.rx.try_recv() {
+            Ok(r) => r,
+            Err(mpsc::TryRecvError::Empty) => return,
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.status = "The evaluation crashed (this is a bug in speci-local)".into();
+                self.job = None;
+                return;
+            }
+        };
+        let job = self.job.take().unwrap();
+        match r {
             Err(d) => {
                 self.spec_diags = d;
+                self.results = vec![None; job.doc.tests.len()];
                 self.status = "The specification has errors".into();
             }
-            Ok(spec) => {
+            Ok(outcomes) => {
                 self.spec_diags.clear();
-                self.results = self
-                    .doc
-                    .tests
-                    .iter()
-                    .map(|t| Some(run_test(&spec, t)))
-                    .collect();
-                let ok = self.results.iter().flatten().filter(|o| o.pass).count();
-                self.status = format!("{ok} of {} test case(s) passed", self.doc.tests.len());
+                let ok = outcomes.iter().filter(|o| o.pass).count();
+                self.status = format!("{ok} of {} test case(s) passed", outcomes.len());
+                self.results = outcomes.into_iter().map(Some).collect();
             }
         }
+        self.evaluated = Some(job.doc.clone());
     }
 
     fn load(&mut self, path: &Path) {
@@ -270,23 +416,10 @@ impl App {
                 self.spec_diags.clear();
                 self.evaluated = None;
                 self.path = Some(path.to_path_buf());
-                self.evaluate();
-                self.status = format!("Opened {} · {}", path.display(), self.status);
+                self.status = format!("Opened {}", path.display());
+                self.submitted = 0; // evaluated on the next frame
             }
             Err(e) => self.status = format!("Could not open {}: {e}", path.display()),
-        }
-    }
-
-    fn open(&mut self) {
-        if !self.confirm_discard() {
-            return;
-        }
-        if let Some(p) = rfd::FileDialog::new()
-            .add_filter("Specification (*.sp)", &["sp"])
-            .add_filter("All files", &["*"])
-            .pick_file()
-        {
-            self.load(&p);
         }
     }
 
@@ -324,9 +457,6 @@ impl App {
     }
 
     fn new_doc(&mut self) {
-        if !self.confirm_discard() {
-            return;
-        }
         let doc = Doc {
             title: String::new(),
             spec: "Be:\n\nKi:\n\nEf:\n-\n\nUf:\n".into(),
@@ -334,6 +464,10 @@ impl App {
         };
         *self = App {
             font: self.font,
+            auto: self.auto,
+            show_s: self.show_s,
+            show_d: self.show_d,
+            show_v: self.show_v,
             saved: doc.clone(),
             doc,
             ..App::default()
@@ -440,14 +574,14 @@ impl App {
                     .on_hover_text("Open a .sp file (Ctrl+O)")
                     .clicked()
                 {
-                    self.open();
+                    self.replace_doc(Replace::Open);
                 }
                 if ui
                     .button(I_NEW)
                     .on_hover_text("New specification (Ctrl+N)")
                     .clicked()
                 {
-                    self.new_doc();
+                    self.replace_doc(Replace::New);
                 }
             });
         });
@@ -594,7 +728,18 @@ impl App {
             )
             .fill(ACCENT);
             if ui.add(run).on_hover_text("Ctrl+Enter").clicked() {
-                self.evaluate();
+                self.evaluate(ui.input(|i| i.time));
+            }
+            ui.checkbox(&mut self.auto, "Auto")
+                .on_hover_text("Re-evaluate automatically shortly after every change");
+            // only show the spinner for runs that take noticeably long
+            if self
+                .job
+                .as_ref()
+                .is_some_and(|j| ui.input(|i| i.time) - j.started > 0.25)
+            {
+                ui.add(egui::Spinner::new());
+                ui.label(RichText::new("Evaluating…").weak());
             }
             let ok = self.results.iter().flatten().filter(|o| o.pass).count();
             let bad = self.results.iter().flatten().filter(|o| !o.pass).count();
@@ -619,7 +764,8 @@ impl App {
         card(ui).inner_margin(Margin::same(10)).show(ui, |ui| {
             egui::ScrollArea::vertical().id_salt("eval-scroll").auto_shrink(false).show(ui, |ui| {
                 if self.spec_diags.is_empty() && self.results.iter().all(Option::is_none) {
-                    ui.label(RichText::new("Press Evaluate (Ctrl+Enter) to run every test case against the specification.").weak());
+                    let msg = if self.auto { "Results appear here as you type." } else { "Press Evaluate (Ctrl+Enter) to run every test case against the specification." };
+                    ui.label(RichText::new(msg).weak());
                 }
                 for d in &self.spec_diags {
                     if diag_ui(ui, d, &self.doc.spec, "") {
@@ -676,32 +822,40 @@ impl App {
     }
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
+        let spec_id = Id::unique(SPEC_ID);
+        let data_id = Id::unique(("data-editor", self.current));
+        let pos = [
+            (spec_id, &self.doc.spec),
+            (data_id, &self.doc.tests[self.current]),
+        ]
+        .into_iter()
+        .find(|(id, _)| ui.memory(|m| m.has_focus(*id)))
+        .and_then(|(id, t)| cursor_of(ui.ctx(), id).map(|c| line_col(t, c.1)));
+        let file = match &self.path {
+            Some(p) => p.display().to_string(),
+            None => "not saved yet".into(),
+        };
         ui.horizontal(|ui| {
-            let file = match &self.path {
-                Some(p) => p.display().to_string(),
-                None => "not saved yet".into(),
-            };
-            ui.label(RichText::new(file).small().weak());
-            if self.dirty() {
-                ui.label(RichText::new("modified").small().color(ACCENT));
-            }
-            if !self.status.is_empty() {
-                ui.separator();
-                ui.label(RichText::new(&self.status).small());
-            }
+            // right side first so the (possibly long) path can be truncated to the remaining width
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let spec_id = Id::unique(SPEC_ID);
-                let data_id = Id::unique(("data-editor", self.current));
-                let pos = [
-                    (spec_id, &self.doc.spec),
-                    (data_id, &self.doc.tests[self.current]),
-                ]
-                .into_iter()
-                .find(|(id, _)| ui.memory(|m| m.has_focus(*id)))
-                .and_then(|(id, t)| cursor_of(ui.ctx(), id).map(|c| line_col(t, c.1)));
+                ui.label(
+                    RichText::new(concat!("v", env!("CARGO_PKG_VERSION")))
+                        .small()
+                        .weak(),
+                );
                 if let Some((l, c)) = pos {
                     ui.label(RichText::new(format!("Ln {l}, Col {c}")).small().weak());
                 }
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    if self.dirty() {
+                        ui.label(RichText::new("● modified").small().color(ACCENT));
+                    }
+                    if !self.status.is_empty() {
+                        ui.add(egui::Label::new(RichText::new(&self.status).small()).truncate());
+                    }
+                    ui.add(egui::Label::new(RichText::new(file).small().weak()).truncate())
+                        .on_hover_text("File of the current specification");
+                });
             });
         });
     }
@@ -805,17 +959,35 @@ impl eframe::App for App {
                 i.consume_key(egui::Modifiers::COMMAND, egui::Key::N),
             )
         });
+        let now = ctx.input(|i| i.time);
         if run {
-            self.evaluate();
+            self.evaluate(now);
+        }
+        // auto-evaluation: wait until typing pauses, then run in the background
+        self.poll_job();
+        let h = doc_hash(&self.doc);
+        if h != self.last_change.0 {
+            self.last_change = (h, now);
+        }
+        if h != self.submitted && (self.auto || self.submitted == 0) {
+            let wait = 0.3 - (now - self.last_change.1);
+            if wait <= 0.0 {
+                self.evaluate(now);
+            } else {
+                ctx.request_repaint_after(std::time::Duration::from_secs_f64(wait));
+            }
+        }
+        if self.job.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(30));
         }
         if save || save_as {
             self.save(save_as);
         }
         if open {
-            self.open();
+            self.replace_doc(Replace::Open);
         }
         if new {
-            self.new_doc();
+            self.replace_doc(Replace::New);
         }
         // drag & drop a .sp file onto the window
         if let Some(path) = ctx.input(|i| {
@@ -823,10 +995,10 @@ impl eframe::App for App {
                 .dropped_files
                 .iter()
                 .find_map(|f| Some(f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty()))
-        }) && self.confirm_discard()
-        {
-            self.load(&path);
+        }) {
+            self.replace_doc(Replace::Load(path));
         }
+        self.confirm_dialog(&ctx);
         if self.results.len() != self.doc.tests.len() {
             self.results.resize(self.doc.tests.len(), None);
         }

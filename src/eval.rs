@@ -5,6 +5,7 @@ use crate::parser::{BinOp, Expr, ExprKind, Spec};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
 #[derive(Clone, Debug)]
 pub enum Value {
@@ -116,11 +117,16 @@ impl fmt::Display for Value {
 type R<T> = Result<T, Diagnostic>;
 
 const MAX_STEPS: u64 = 50_000_000;
+/// Longest loop a quantifier or theorem macro may run (also bounds memory for COPY/MIS).
+const MAX_RANGE: i64 = 10_000_000;
 
 pub struct Eval<'a> {
     pub spec: &'a Spec,
     depth: usize,
     steps: u64,
+    /// Variables bound by `=` so far, so failed branches can be undone without cloning the environment.
+    log: Vec<String>,
+    cancel: Option<&'a AtomicBool>,
 }
 
 impl<'a> Eval<'a> {
@@ -129,7 +135,33 @@ impl<'a> Eval<'a> {
             spec,
             depth: 0,
             steps: 0,
+            log: Vec::new(),
+            cancel: None,
         }
+    }
+
+    /// Evaluation stops with an error as soon as `cancel` becomes true.
+    pub fn with_cancel(spec: &'a Spec, cancel: &'a AtomicBool) -> Self {
+        Eval {
+            cancel: Some(cancel),
+            ..Self::new(spec)
+        }
+    }
+
+    /// Undo every binding made after `mark`.
+    fn rollback(&mut self, mark: usize, env: &mut Env) {
+        for name in self.log.drain(mark..) {
+            env.remove(&name);
+        }
+    }
+
+    fn check_range(&self, e: &Expr, lo: i64, hi: i64) -> R<()> {
+        if hi.saturating_sub(lo) >= MAX_RANGE {
+            return Err(self
+                .err(e, format!("The range {lo}..{hi} is too large"))
+                .explain(format!("Ranges may have at most {MAX_RANGE} elements here. A bound is probably wrong (or a test value is much larger than intended).")));
+        }
+        Ok(())
     }
 
     fn err(&self, e: &Expr, title: impl Into<String>) -> Diagnostic {
@@ -166,6 +198,11 @@ impl<'a> Eval<'a> {
 
     pub fn eval(&mut self, e: &Expr, env: &mut Env) -> R<Value> {
         self.steps += 1;
+        if self.steps.is_multiple_of(4096)
+            && self.cancel.is_some_and(|c| c.load(AtomicOrdering::Relaxed))
+        {
+            return Err(Diagnostic::plain("Evaluation cancelled"));
+        }
         if self.steps > MAX_STEPS {
             return Err(self
                 .err(e, "Evaluation takes too long")
@@ -222,26 +259,28 @@ impl<'a> Eval<'a> {
                 }
             },
             ExprKind::Not(a) => {
-                let mut c = env.clone();
-                Value::Bool(!self.truth(a, &mut c)?)
+                let mark = self.log.len();
+                let r = self.truth(a, env)?;
+                self.rollback(mark, env);
+                Value::Bool(!r)
             }
             ExprKind::Bin(op, a, b) => match op {
                 BinOp::And => Value::Bool(self.truth(a, env)? && self.truth(b, env)?),
                 BinOp::Or => {
-                    let mut c = env.clone();
-                    if self.truth(a, &mut c)? {
-                        *env = c;
+                    let mark = self.log.len();
+                    if self.truth(a, env)? {
                         Value::Bool(true)
                     } else {
+                        self.rollback(mark, env);
                         Value::Bool(self.truth(b, env)?)
                     }
                 }
                 BinOp::Imp => {
-                    let mut c = env.clone();
-                    if self.truth(a, &mut c)? {
-                        *env = c;
+                    let mark = self.log.len();
+                    if self.truth(a, env)? {
                         Value::Bool(self.truth(b, env)?)
                     } else {
+                        self.rollback(mark, env);
                         Value::Bool(true)
                     }
                 }
@@ -337,30 +376,34 @@ impl<'a> Eval<'a> {
             } => {
                 let l = self.int(lo, env, "The lower bound")?;
                 let h = self.int(hi, env, "The upper bound")?;
+                self.check_range(e, l, h)?;
+                let old = env.remove(var);
+                let mut result = *all;
                 let mut i = l;
                 while i <= h {
-                    let mut c = env.clone();
-                    c.insert(var.clone(), Value::Int(i));
-                    let ok = self.truth(body, &mut c)?;
-                    if !all && ok {
-                        // keep values bound inside the witness, but not the quantifier variable
-                        match env.get(var) {
-                            Some(old) => {
-                                c.insert(var.clone(), old.clone());
-                            }
-                            None => {
-                                c.remove(var);
-                            }
+                    env.insert(var.clone(), Value::Int(i));
+                    let mark = self.log.len();
+                    let ok = match self.truth(body, env) {
+                        Ok(ok) => ok,
+                        Err(d) => {
+                            restore(env, var, old);
+                            return Err(d);
                         }
-                        *env = c;
-                        return Ok(Value::Bool(true));
+                    };
+                    // ∃ keeps the bindings of its witness; everything else is undone
+                    if !all && ok {
+                        result = true;
+                        break;
                     }
+                    self.rollback(mark, env);
                     if *all && !ok {
-                        return Ok(Value::Bool(false));
+                        result = false;
+                        break;
                     }
                     i += 1;
                 }
-                Value::Bool(*all)
+                restore(env, var, old);
+                Value::Bool(result)
             }
             ExprKind::Macro {
                 name,
@@ -371,10 +414,7 @@ impl<'a> Eval<'a> {
             } => {
                 let old = env.remove(var);
                 let r = self.pattern(e, name, var, lo, hi.as_ref(), args, env);
-                env.remove(var);
-                if let Some(o) = old {
-                    env.insert(var.clone(), o);
-                }
+                restore(env, var, old);
                 r?
             }
         })
@@ -423,8 +463,10 @@ impl<'a> Eval<'a> {
             (BinOp::Add, Int(p), Int(q)) => Int(p.checked_add(*q).ok_or_else(overflow)?),
             (BinOp::Sub, Int(p), Int(q)) => Int(p.checked_sub(*q).ok_or_else(overflow)?),
             (BinOp::Mul, Int(p), Int(q)) => Int(p.checked_mul(*q).ok_or_else(overflow)?),
-            (BinOp::Mod, Int(p), Int(q)) => Int(p.rem_euclid(*q)),
-            (BinOp::Div, Int(p), Int(q)) if p % q == 0 => Int(p / q),
+            (BinOp::Mod, Int(p), Int(q)) => Int(p.checked_rem_euclid(*q).ok_or_else(overflow)?),
+            (BinOp::Div, Int(p), Int(q)) if p.checked_rem(*q) == Some(0) => {
+                Int(p.checked_div(*q).ok_or_else(overflow)?)
+            }
             (BinOp::Add, ..) => Real(x.num() + y.num()),
             (BinOp::Sub, ..) => Real(x.num() - y.num()),
             (BinOp::Mul, ..) => Real(x.num() * y.num()),
@@ -440,9 +482,11 @@ impl<'a> Eval<'a> {
             "!=" => return Ok(!x.eq_val(y)),
             "|" => {
                 return match (x, y) {
-                    (Value::Int(p), Value::Int(q)) => {
-                        Ok(if *p == 0 { *q == 0 } else { q % p == 0 })
-                    }
+                    (Value::Int(p), Value::Int(q)) => Ok(if *p == 0 {
+                        *q == 0
+                    } else {
+                        q.checked_rem(*p).is_none_or(|r| r == 0)
+                    }),
                     _ => Err(self
                         .err(
                             e,
@@ -527,6 +571,7 @@ impl<'a> Eval<'a> {
     fn bind(&mut self, target: &Expr, v: Value, env: &mut Env, source: &Expr) -> R<bool> {
         match &*target.kind {
             ExprKind::Var(n) if self.is_unbound(env, n) => {
+                self.log.push(n.clone());
                 env.insert(n.clone(), v);
                 Ok(true)
             }
@@ -539,6 +584,7 @@ impl<'a> Eval<'a> {
                     Value::Real(r) => Value::Real(-r),
                     other => other,
                 };
+                self.log.push(n.clone());
                 env.insert(n.clone(), neg);
                 Ok(true)
             }
@@ -677,13 +723,20 @@ impl<'a> Eval<'a> {
                     "More than 500 nested function calls; the recursion probably never stops.",
                 ));
         }
-        let mut local = env.clone();
-        for (p, v) in f.params.iter().zip(vals) {
-            local.insert(p.clone(), v);
-        }
+        let saved: Vec<(String, Option<Value>)> = f
+            .params
+            .iter()
+            .zip(vals)
+            .map(|(p, v)| (p.clone(), env.insert(p.clone(), v)))
+            .collect();
+        let mark = self.log.len();
         self.depth += 1;
-        let r = self.eval(&f.body, &mut local);
+        let r = self.eval(&f.body, env);
         self.depth -= 1;
+        self.rollback(mark, env);
+        for (p, old) in saved.into_iter().rev() {
+            restore(env, &p, old);
+        }
         r
     }
 
@@ -712,6 +765,7 @@ impl<'a> Eval<'a> {
                 .hint("SELECT assumes a match exists. Prove it in the precondition (e.g. `∃i∈[1..n]:(…)`), or use SEARCH if it may not exist."));
         }
         let end = self.int(hi.unwrap(), env, "The range end")?;
+        self.check_range(e, b, end)?;
         let set = |env: &mut Env, i: i64| {
             env.insert(var.to_string(), Value::Int(i));
         };
@@ -856,6 +910,18 @@ impl<'a> Eval<'a> {
                 }
             }
             _ => unreachable!("unknown macro {name}"),
+        }
+    }
+}
+
+/// Put back the value a loop variable or parameter shadowed.
+fn restore(env: &mut Env, name: &str, old: Option<Value>) {
+    match old {
+        Some(v) => {
+            env.insert(name.to_string(), v);
+        }
+        None => {
+            env.remove(name);
         }
     }
 }

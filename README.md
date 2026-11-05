@@ -3,8 +3,9 @@
 An offline replacement for the ELTE Specification Editor (progalap.elte.hu/specifikacio), for when the university login is down.
 It's a single native binary for Linux and Windows.
 
-You write a specification (`Be:/Sa:/Ki:/Fv:/Ef:/Uf:` or `In:/Aux:/Out:/Fn:/Pre:/Post:`), add YAML test cases, and press **Evaluate** (Ctrl+Enter).
-Each test tab turns green or red.
+You write a specification (`Be:/Sa:/Ki:/Fv:/Ef:/Uf:` or `In:/Aux:/Out:/Fn:/Pre:/Post:`) and add YAML test cases.
+Everything is re-evaluated automatically as you type, in the background, and each test tab turns green or red.
+Untick **Auto** if you'd rather evaluate manually with **Evaluate** (Ctrl+Enter).
 
 ## Build & run
 
@@ -12,8 +13,13 @@ Each test tab turns green or red.
 cargo run --release
 ```
 
-Linux needs the usual windowing libraries (X11/Wayland, `libxkbcommon`). Windows needs no extra setup.
-CI builds both platforms; download the binaries from the Actions artifacts.
+Linux needs the usual windowing libraries (X11/Wayland, `libxkbcommon`), and the Open/Save dialogs need `xdg-desktop-portal` (standard on GNOME and KDE). Windows needs no extra setup.
+
+## Downloads
+
+Ready-made Linux and Windows binaries are attached to the [GitHub releases](https://github.com/FCsab/speci-local/releases).
+To publish a new release, push a version tag: `git tag v0.2.0 && git push origin v0.2.0`.
+The Release workflow then builds both platforms, runs the tests, and attaches the archives.
 
 ## What it does
 

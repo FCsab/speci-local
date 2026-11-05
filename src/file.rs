@@ -40,7 +40,8 @@ pub fn to_sp(doc: &Doc) -> String {
 }
 
 pub fn from_sp(text: &str) -> Doc {
-    let text = text.replace("\r\n", "\n");
+    // Windows editors may add a byte-order mark and CRLF line endings
+    let text = text.trim_start_matches('\u{feff}').replace("\r\n", "\n");
     let mut rest = text.as_str();
     let mut title = String::new();
     if let Some(r) = rest.strip_prefix(TITLE) {

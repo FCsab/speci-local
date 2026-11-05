@@ -21,8 +21,8 @@ fn show(y: &Yaml) -> String {
 fn key_line(text: &str, key: &str) -> usize {
     text.lines()
         .position(|l| {
-            l.trim_start()
-                .strip_prefix(key)
+            // top-level keys only: nested record fields are indented or follow `- `
+            l.strip_prefix(key)
                 .is_some_and(|r| r.trim_start().starts_with(':'))
         })
         .map(|i| i + 1)

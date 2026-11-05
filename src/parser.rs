@@ -243,7 +243,7 @@ fn glyph_sym(c: char) -> Option<&'static str> {
     })
 }
 
-fn lex(src: &str, from: usize, to: usize) -> Result<Vec<Token>, Diagnostic> {
+fn lex(src: &str, orig: &str, from: usize, to: usize) -> Result<Vec<Token>, Diagnostic> {
     let s = &src[from..to];
     let mut toks = Vec::new();
     let mut it = s.char_indices().peekable();
@@ -303,7 +303,7 @@ fn lex(src: &str, from: usize, to: usize) -> Result<Vec<Token>, Diagnostic> {
                 push(&mut toks, Tok::Real(s[i..end].parse().unwrap()), at(end));
             } else {
                 let v = s[i..end].parse::<i64>().map_err(|_| {
-                    let (l, c) = line_col(src, start);
+                    let (l, c) = line_col(orig, start);
                     Diagnostic::new(l, c, "Number is too large")
                         .explain("Whole numbers must fit in 64 bits.")
                 })?;
@@ -323,7 +323,7 @@ fn lex(src: &str, from: usize, to: usize) -> Result<Vec<Token>, Diagnostic> {
                 }
             }
             let Some(e) = end else {
-                let (l, col) = line_col(src, start);
+                let (l, col) = line_col(orig, start);
                 return Err(Diagnostic::new(l, col, "Unterminated text literal")
                     .explain("A text value starts with a quote but the line ends before the closing quote.")
                     .hint("Add the closing `\"`."));
@@ -340,7 +340,7 @@ fn lex(src: &str, from: usize, to: usize) -> Result<Vec<Token>, Diagnostic> {
             }
             push(&mut toks, Tok::Sym(sym), at(i + sym.len()));
         } else {
-            let (l, col) = line_col(src, start);
+            let (l, col) = line_col(orig, start);
             return Err(Diagnostic::new(l, col, format!("Unexpected character `{c}`"))
                 .explain("This character is not part of the specification language.")
                 .hint("Use the symbol buttons (∈ ∀ ∃ ≠ ≤ ≥ →) or their ASCII forms (element, forall, exists, !=, <=, >=, ->)."));
@@ -1155,8 +1155,10 @@ impl<'a> Parser<'a> {
                 let f = match t.tok {
                     Tok::Ident(n) => n,
                     Tok::Int(i) => i.to_string(),
-                    _ => {
-                        self.pos -= 1;
+                    other => {
+                        if other != Tok::Eof {
+                            self.pos -= 1;
+                        }
                         return Err(self.unexpected(
                             "a field name or a tuple position (like `.name` or `.1`) after `.`",
                         ));
@@ -1279,7 +1281,15 @@ impl<'a> Parser<'a> {
                 Ok(self.mk(start, ExprKind::Array(items)))
             }
             Tok::Sym(q @ ("∀" | "∃")) => {
+                let word = t.text.chars().all(char::is_alphabetic);
                 self.next();
+                if word && !matches!(self.peek().tok, Tok::Ident(_)) {
+                    // e.g. `(exists,ind)=SEARCH(…)`: the keyword was meant as a variable
+                    return Err(self
+                        .err_at(start, format!("`{}` is a reserved word and can't be used as a name", t.text))
+                        .explain(format!("`{}` is the ASCII spelling of {q}, so it is read as a quantifier here.", t.text))
+                        .hint("Rename the variable everywhere (declaration, postcondition and test data), e.g. to `van` or `talalt`."));
+                }
                 let var = self.ident("quantifier variable (like `i` in `∀i∈[1..n]:(…)`)")?;
                 self.expect(
                     "∈",
@@ -1396,9 +1406,9 @@ pub fn parse(src: &str) -> Result<Spec, Vec<Diagnostic>> {
     let (mut pre, mut post) = (None, None);
     let (mut pre_kw, mut post_kw) = (String::new(), String::new());
     for b in &blocks {
-        let toks = lex(&clean, b.body.0, b.body.1).map_err(|d| vec![d])?;
+        let toks = lex(&clean, src, b.body.0, b.body.1).map_err(|d| vec![d])?;
         let mut p = Parser {
-            src: &clean,
+            src,
             toks,
             pos: 0,
             block_kw: b.kw.clone(),
@@ -1565,9 +1575,8 @@ fn check(spec: &Spec) -> Vec<Diagnostic> {
     }
 
     let mut bad = Vec::new();
-    for (name, f) in &spec.funcs {
+    for f in spec.funcs.values() {
         let mut scope = f.params.clone();
-        let _ = name;
         scoped(spec, &f.body, &mut scope, &mut bad);
     }
     scoped(spec, &spec.pre, &mut Vec::new(), &mut bad);
@@ -1576,6 +1585,28 @@ fn check(spec: &Spec) -> Vec<Diagnostic> {
         if let Some(i) = &d.init {
             scoped(spec, i, &mut Vec::new(), &mut bad);
         }
+    }
+    fn type_exprs<'t>(t: &'t Type, out: &mut Vec<&'t Expr>) {
+        match t {
+            Type::Interval(a, b) => out.extend([a, b]),
+            Type::Array { lo, hi, elem } => {
+                out.push(lo);
+                out.extend(hi.iter());
+                type_exprs(elem, out);
+            }
+            Type::Record(fs) => fs.iter().for_each(|(_, t)| type_exprs(t, out)),
+            _ => {}
+        }
+    }
+    let mut bounds = Vec::new();
+    for d in &spec.decls {
+        type_exprs(&d.ty, &mut bounds);
+    }
+    for t in spec.aliases.values() {
+        type_exprs(t, &mut bounds);
+    }
+    for b in bounds {
+        scoped(spec, b, &mut Vec::new(), &mut bad);
     }
     let mut seen = HashSet::new();
     for (off, name, is_call) in bad {
@@ -1642,7 +1673,7 @@ fn check(spec: &Spec) -> Vec<Diagnostic> {
     for n in used {
         if !spec.aliases.contains_key(n) && seen.insert((0, n.to_string())) {
             let cands: Vec<&str> = spec.aliases.keys().map(|s| s.as_str()).collect();
-            let off = spec.src.find(n).unwrap_or(0);
+            let off = find_word(&spec.src, n).unwrap_or(0);
             diags.push(at(off, format!("Unknown type `{n}`")).explain(format!(
                 "Define it in a declaration block, e.g. `{n}=(name:S x value:N)`. Built-in sets: N, Z, R, L, S, C, K.{}",
                 did_you_mean(n, cands)
@@ -1721,4 +1752,13 @@ pub fn vars_in(e: &Expr) -> Vec<String> {
         }
     });
     v
+}
+
+/// Byte offset of `word` as a whole identifier (not inside a longer name).
+fn find_word(src: &str, word: &str) -> Option<usize> {
+    let is_id = |c: char| c.is_alphanumeric() || c == '_';
+    src.match_indices(word).map(|(i, _)| i).find(|&i| {
+        !src[..i].chars().next_back().is_some_and(is_id)
+            && !src[i + word.len()..].chars().next().is_some_and(is_id)
+    })
 }

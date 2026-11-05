@@ -98,6 +98,41 @@ fn explain_false(ev: &mut Eval, e: &Expr, env: &Env, which: &str) -> Diagnostic 
 
 /// Run one test case against a parsed specification.
 pub fn run_test(spec: &Spec, data: &str) -> Outcome {
+    run_test_with(spec, data, &std::sync::atomic::AtomicBool::new(false))
+}
+
+/// Does `v` belong to the declared set `t`? Returns a reason if not.
+fn misfit(spec: &Spec, t: &parser::Type, v: &Value) -> Option<String> {
+    use parser::Type as T;
+    let t = spec.resolve(t)?;
+    match (t, v) {
+        (_, Value::Undef) => None,
+        (T::Nat, Value::Int(i)) if *i < 0 => Some(format!(
+            "{i} is negative, but N only has whole numbers ≥ 0 (declare it as Z?)"
+        )),
+        (T::Nat | T::Int, Value::Int(_))
+        | (T::Real, Value::Int(_) | Value::Real(_))
+        | (T::Bool, Value::Bool(_)) => None,
+        (T::Str, Value::Str(_)) => None,
+        (T::Char, Value::Str(s)) if s.chars().count() == 1 => None,
+        (T::Interval(..), Value::Int(_)) => None,
+        (T::Array { elem, .. }, Value::Arr { items, .. }) => {
+            items.iter().find_map(|x| misfit(spec, elem, x))
+        }
+        (T::Record(fs), Value::Rec(vs)) => fs
+            .iter()
+            .zip(vs)
+            .find_map(|((_, ft), (_, fv))| misfit(spec, ft, fv)),
+        (_, v) => Some(format!(
+            "{} is {}, which doesn't fit the declared type",
+            v.short(),
+            v.kind()
+        )),
+    }
+}
+
+/// Like [`run_test`], but gives up (failing the test) as soon as `cancel` is set.
+pub fn run_test_with(spec: &Spec, data: &str, cancel: &std::sync::atomic::AtomicBool) -> Outcome {
     let fail = |d: Diagnostic| Outcome {
         pass: false,
         diags: vec![d],
@@ -108,7 +143,7 @@ pub fn run_test(spec: &Spec, data: &str) -> Outcome {
         Ok(e) => e,
         Err(d) => return fail(d),
     };
-    let mut ev = Eval::new(spec);
+    let mut ev = Eval::with_cancel(spec, cancel);
     let (pre_kw, post_kw) = (
         spec.pre_kw.trim_end_matches(':'),
         spec.post_kw.trim_end_matches(':'),
@@ -156,6 +191,10 @@ pub fn run_test(spec: &Spec, data: &str) -> Outcome {
                 .iter()
                 .filter(|d| d.role == Role::Out && !post_env.contains_key(&d.name))
                 .map(|d| format!("`{}` got no value: it isn't in the test data and the postcondition doesn't determine it here (e.g. it is behind an implication whose condition is false).", d.name))
+                .chain(outs.iter().filter(|d| !env.contains_key(&d.name)).filter_map(|d| {
+                    let why = misfit(spec, &d.ty, post_env.get(&d.name)?)?;
+                    Some(format!("The computed value of `{}` is not valid for its declaration: {why}.", d.name))
+                }))
                 .collect();
             Outcome {
                 pass: true,

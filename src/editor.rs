@@ -125,7 +125,11 @@ pub fn highlight_spec(text: &str, font: FontId, p: &Palette, errors: &[usize]) -
             (rest.find('\n').unwrap_or(rest.len()), p.comment)
         } else if rest.starts_with("/*") {
             (
-                rest[2..].find("*/").map(|i| i + 4).unwrap_or(rest.len()),
+                rest.split_at(2)
+                    .1
+                    .find("*/")
+                    .map(|i| i + 4)
+                    .unwrap_or(rest.len()),
                 p.comment,
             )
         } else if c == '"' {
@@ -446,6 +450,22 @@ pub enum Lang {
     Data,
 }
 
+/// Is the end of `before` inside a comment or a quoted text?
+fn in_comment_or_string(before: &[char], lang: Lang) -> bool {
+    let text: String = before.iter().collect();
+    let line = text.rsplit('\n').next().unwrap_or("");
+    let quotes = line.matches('"').count() % 2 == 1;
+    match lang {
+        Lang::Data => quotes || line.contains('#'),
+        Lang::Spec => {
+            let open_block = text
+                .rfind("/*")
+                .is_some_and(|o| text.rfind("*/").is_none_or(|c| c < o));
+            quotes || open_block || line.contains("//")
+        }
+    }
+}
+
 fn char_to_byte(s: &str, c: usize) -> usize {
     s.char_indices().nth(c).map(|(i, _)| i).unwrap_or(s.len())
 }
@@ -520,6 +540,13 @@ pub fn code_editor(
         let cur = cursor_of(ui.ctx(), id).map(|c| c.1).unwrap_or(comp.start);
         replace(ui.ctx(), id, text, comp.start, cur, &it.insert);
         comp.items.clear();
+    }
+
+    // Tab inserts two spaces: a real tab character is invalid in YAML test data
+    if focused && !open && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Tab)) {
+        let n = text.chars().count();
+        let (a, b) = cursor_of(ui.ctx(), id).unwrap_or((n, n));
+        replace(ui.ctx(), id, text, a, b, "  ");
     }
 
     let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, _wrap: f32| {
@@ -604,6 +631,7 @@ pub fn code_editor(
             .all(|c| c.is_whitespace());
         if out.response.changed()
             && plen > 0
+            && !in_comment_or_string(&before[..start], lang)
             && !before
                 .get(start.wrapping_sub(1))
                 .is_some_and(|c| c.is_ascii_digit())
@@ -820,6 +848,43 @@ mod tests {
             h.state().comp.items.first().map(|i| i.detail.as_str()),
             Some("integers")
         );
+    }
+
+    #[test]
+    fn no_completion_in_comments_or_text() {
+        for start in ["Uf: x=1 // ", "Uf: /* ", "Uf: x=\""] {
+            let mut h = harness(start);
+            h.run_steps(3);
+            h.event(egui::Event::Text("SU".into()));
+            h.run_steps(3);
+            assert!(h.state().comp.items.is_empty(), "{start}");
+        }
+    }
+
+    #[test]
+    fn tab_inserts_spaces() {
+        let mut h = harness("n:");
+        h.run_steps(3);
+        h.key_press(Key::Tab);
+        h.run_steps(3);
+        assert_eq!(h.state().text, "n:  ");
+    }
+
+    #[test]
+    fn fuzz_highlight_and_scan() {
+        let p = palette(false);
+        let f = FontId::monospace(14.0);
+        let base: Vec<char> = "Be:\nn∈N, t∈Pont[1..n], Pont=(x:Z x y:Z) // é\nFv: f:N->N, f(i)=i\nUf: ∀i∈[1..n]:(t[i].x>0) /* ő */ \"s\" -1.5 a->b\n- name: \"x\" # c\n".chars().collect();
+        let mut seed: u64 = 7;
+        for _ in 0..3000 {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let a = (seed >> 33) as usize % base.len();
+            let b = (seed >> 13) as usize % base.len();
+            let t: String = base[a.min(b)..a.max(b)].iter().collect();
+            assert_eq!(highlight_spec(&t, f.clone(), &p, &[2]).text, t);
+            assert_eq!(highlight_data(&t, f.clone(), &p, &[2]).text, t);
+            let _ = scan_symbols(&t);
+        }
     }
 
     #[test]
