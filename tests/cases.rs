@@ -503,5 +503,60 @@ fn fuzz_no_panics() {
             tests: vec![test.clone()],
         };
         let _ = speci_local::file::from_sp(&speci_local::file::to_sp(&doc));
+        let compact = speci_local::file::to_compact(&doc);
+        assert_eq!(speci_local::file::from_clipboard(&compact).unwrap().spec.trim_end(), doc.spec.trim_end());
+        let cut = rnd(compact.len());
+        let _ = speci_local::file::from_clipboard(&compact[..cut]);
+        let _ = speci_local::file::from_clipboard(&format!("SPECI1:{test}"));
+        if let Ok(s) = parse(&spec) {
+            let _ = speci_local::trace_test(&s, &test, &Default::default());
+        }
     }
+}
+
+#[test]
+fn stepper_trace() {
+    use speci_local::eval::StepKind;
+    let spec = "In: n∈N, c∈N[1..n,1..4]\nAux: van∈L\nOut: ind∈N\nFn: more5:N→L, more5(i)=FORALL(j=1..4,c[i,j]>5)\nPre: -\nPost: (van,ind)=SEARCH(i=1..n, more5(i))";
+    let s = parse(spec).unwrap();
+    let data = "n: 3\nc: [[5, 6, 7, 4], [6, 8, 7, 9], [1, 2, 3, 4]]\nvan: true\nind: 2";
+    let t = speci_local::trace_test(&s, data, &Default::default()).unwrap();
+    let kinds: Vec<&StepKind> = t.steps.iter().map(|s| &s.kind).collect();
+    assert!(
+        kinds.contains(&&StepKind::Enter("more5(1)".into())),
+        "{kinds:?}"
+    );
+    assert!(kinds.contains(&&StepKind::Leave("more5 → false".into())));
+    assert!(kinds.contains(&&StepKind::Leave("more5 → true".into())));
+    // the last step is the whole postcondition, and it holds
+    let last = t.steps.last().unwrap();
+    assert_eq!(
+        (last.label.as_str(), &last.kind),
+        ("Post:", &StepKind::Value("true".into()))
+    );
+    assert_eq!(
+        &spec[last.span.0..last.span.1],
+        "(van,ind)=SEARCH(i=1..n, more5(i))"
+    );
+    // inside the function: its body is the formula, the parameter and loop variable are in scope
+    let inner = t
+        .steps
+        .iter()
+        .find(|s| s.label == "more5" && s.scope.iter().any(|(n, _)| n == "j"))
+        .unwrap();
+    assert_eq!(&spec[inner.root.0..inner.root.1], "FORALL(j=1..4,c[i,j]>5)");
+    assert!(inner.scope.iter().any(|(n, v)| n == "i" && v == "1") && inner.depth == 1);
+    assert!(!t.truncated);
+    // runtime errors end the trace with an Error step
+    let s = parse("Be: n∈N, ar∈N[1..n]\nKi: x∈N\nEf: -\nUf: x=ar[n+1]").unwrap();
+    let t = speci_local::trace_test(&s, "n: 1\nar: [1]\nx: 1", &Default::default()).unwrap();
+    assert!(
+        matches!(&t.steps.last().unwrap().kind, StepKind::Error(e) if e.contains("out of range")),
+        "{:?}",
+        t.steps.last()
+    );
+    // long evaluations are capped
+    let s = parse("Be: n∈N\nKi: x∈N\nEf: -\nUf: x=SUM(i=1..n, i)").unwrap();
+    let t = speci_local::trace_test(&s, "n: 100000", &Default::default()).unwrap();
+    assert!(t.truncated && t.steps.len() == speci_local::eval::TRACE_CAP);
 }

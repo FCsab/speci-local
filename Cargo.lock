@@ -3121,8 +3121,10 @@ dependencies = [
 name = "speci-local"
 version = "0.2.0"
 dependencies = [
+ "arboard",
  "eframe",
  "egui_kittest",
+ "miniz_oxide 0.8.9",
  "rfd",
  "serde",
  "yaml-rust2",

@@ -131,6 +131,24 @@ fn misfit(spec: &Spec, t: &parser::Type, v: &Value) -> Option<String> {
     }
 }
 
+/// Record every evaluation step of one test case (precondition, then postcondition) for the stepper.
+/// Returns `None` if the test data can't be loaded (the normal run reports why).
+pub fn trace_test(
+    spec: &Spec,
+    data: &str,
+    cancel: &std::sync::atomic::AtomicBool,
+) -> Option<eval::Trace> {
+    let env = data::load(spec, data).ok()?;
+    let mut ev = Eval::with_cancel(spec, cancel);
+    ev.trace = Some(eval::Trace::default());
+    ev.set_root(&spec.pre, &spec.pre_kw);
+    if let Ok(true) = ev.truth(&spec.pre, &mut env.clone()) {
+        ev.set_root(&spec.post, &spec.post_kw);
+        let _ = ev.truth(&spec.post, &mut env.clone());
+    }
+    ev.trace
+}
+
 /// Like [`run_test`], but gives up (failing the test) as soon as `cancel` is set.
 pub fn run_test_with(spec: &Spec, data: &str, cancel: &std::sync::atomic::AtomicBool) -> Outcome {
     let fail = |d: Diagnostic| Outcome {

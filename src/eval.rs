@@ -120,6 +120,42 @@ const MAX_STEPS: u64 = 50_000_000;
 /// Longest loop a quantifier or theorem macro may run (also bounds memory for COPY/MIS).
 const MAX_RANGE: i64 = 10_000_000;
 
+/// One step of the evaluation, for the stepper.
+#[derive(Clone, Debug)]
+pub struct Step {
+    /// The formula being evaluated (byte span in the source) and its label, e.g. `Uf:` or `kisebb`.
+    pub root: (usize, usize),
+    pub label: String,
+    /// The sub-expression this step evaluated (byte span in the source).
+    pub span: (usize, usize),
+    pub kind: StepKind,
+    /// Function-call nesting depth.
+    pub depth: usize,
+    /// Loop variables and parameters visible at this step.
+    pub scope: Vec<(String, String)>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum StepKind {
+    /// The sub-expression evaluated to this value.
+    Value(String),
+    /// Evaluation failed here.
+    Error(String),
+    /// Entering a function call (`↓`), e.g. `kisebb(3)`.
+    Enter(String),
+    /// Returning from a function (`↑`) with this value.
+    Leave(String),
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Trace {
+    pub steps: Vec<Step>,
+    /// More steps happened than were recorded.
+    pub truncated: bool,
+}
+
+pub const TRACE_CAP: usize = 5000;
+
 pub struct Eval<'a> {
     pub spec: &'a Spec,
     depth: usize,
@@ -127,6 +163,12 @@ pub struct Eval<'a> {
     /// Variables bound by `=` so far, so failed branches can be undone without cloning the environment.
     log: Vec<String>,
     cancel: Option<&'a AtomicBool>,
+    /// When set, every evaluated sub-expression is recorded (up to [`TRACE_CAP`] steps).
+    pub trace: Option<Trace>,
+    root: (usize, usize),
+    root_label: String,
+    scope_names: Vec<String>,
+    error_recorded: bool,
 }
 
 impl<'a> Eval<'a> {
@@ -137,6 +179,11 @@ impl<'a> Eval<'a> {
             steps: 0,
             log: Vec::new(),
             cancel: None,
+            trace: None,
+            root: (0, 0),
+            root_label: String::new(),
+            scope_names: Vec::new(),
+            error_recorded: false,
         }
     }
 
@@ -196,7 +243,57 @@ impl<'a> Eval<'a> {
         }
     }
 
+    /// Set the formula that following steps belong to (for the stepper).
+    pub fn set_root(&mut self, e: &Expr, label: &str) {
+        self.root = (e.start, e.end);
+        self.root_label = label.to_string();
+    }
+
+    fn record(&mut self, e: &Expr, kind: StepKind, env: &Env) {
+        let Some(t) = &mut self.trace else { return };
+        if t.steps.len() >= TRACE_CAP {
+            t.truncated = true;
+            return;
+        }
+        let mut scope: Vec<(String, String)> = Vec::new();
+        for n in self.scope_names.iter().rev() {
+            if !scope.iter().any(|(m, _)| m == n)
+                && let Some(v) = env.get(n)
+            {
+                scope.push((n.clone(), v.short()));
+            }
+        }
+        scope.reverse();
+        t.steps.push(Step {
+            root: self.root,
+            label: self.root_label.clone(),
+            span: (e.start, e.end),
+            kind,
+            depth: self.depth,
+            scope,
+        });
+    }
+
     pub fn eval(&mut self, e: &Expr, env: &mut Env) -> R<Value> {
+        let r = self.eval_inner(e, env);
+        let literal = matches!(
+            &*e.kind,
+            ExprKind::Int(_) | ExprKind::Real(_) | ExprKind::Str(_) | ExprKind::Bool(_)
+        );
+        if self.trace.is_some() && !literal {
+            match &r {
+                Ok(v) => self.record(e, StepKind::Value(v.short()), env),
+                Err(d) if !self.error_recorded => {
+                    self.error_recorded = true;
+                    self.record(e, StepKind::Error(d.title.clone()), env);
+                }
+                Err(_) => {}
+            }
+        }
+        r
+    }
+
+    fn eval_inner(&mut self, e: &Expr, env: &mut Env) -> R<Value> {
         self.steps += 1;
         if self.steps.is_multiple_of(4096)
             && self.cancel.is_some_and(|c| c.load(AtomicOrdering::Relaxed))
@@ -378,6 +475,7 @@ impl<'a> Eval<'a> {
                 let h = self.int(hi, env, "The upper bound")?;
                 self.check_range(e, l, h)?;
                 let old = env.remove(var);
+                self.scope_names.push(var.clone());
                 let mut result = *all;
                 let mut i = l;
                 while i <= h {
@@ -403,6 +501,7 @@ impl<'a> Eval<'a> {
                     i += 1;
                 }
                 restore(env, var, old);
+                self.scope_names.pop();
                 Value::Bool(result)
             }
             ExprKind::Macro {
@@ -413,7 +512,9 @@ impl<'a> Eval<'a> {
                 args,
             } => {
                 let old = env.remove(var);
+                self.scope_names.push(var.clone());
                 let r = self.pattern(e, name, var, lo, hi.as_ref(), args, env);
+                self.scope_names.pop();
                 restore(env, var, old);
                 r?
             }
@@ -723,6 +824,14 @@ impl<'a> Eval<'a> {
                     "More than 500 nested function calls; the recursion probably never stops.",
                 ));
         }
+        if self.trace.is_some() {
+            let shown: Vec<String> = vals.iter().map(Value::short).collect();
+            self.record(
+                e,
+                StepKind::Enter(format!("{name}({})", shown.join(", "))),
+                env,
+            );
+        }
         let saved: Vec<(String, Option<Value>)> = f
             .params
             .iter()
@@ -730,9 +839,20 @@ impl<'a> Eval<'a> {
             .map(|(p, v)| (p.clone(), env.insert(p.clone(), v)))
             .collect();
         let mark = self.log.len();
+        let outer = (self.root, std::mem::take(&mut self.root_label));
+        self.set_root(&f.body, name);
+        self.scope_names.extend(f.params.iter().cloned());
         self.depth += 1;
         let r = self.eval(&f.body, env);
         self.depth -= 1;
+        self.scope_names
+            .truncate(self.scope_names.len() - f.params.len());
+        (self.root, self.root_label) = outer;
+        if self.trace.is_some()
+            && let Ok(v) = &r
+        {
+            self.record(e, StepKind::Leave(format!("{name} → {}", v.short())), env);
+        }
         self.rollback(mark, env);
         for (p, old) in saved.into_iter().rev() {
             restore(env, &p, old);

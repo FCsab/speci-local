@@ -4,7 +4,9 @@ version = "0.2.0"
 edition = "2024"
 
 [dependencies]
+arboard = "3"
 eframe = { version = "0.37.0", features = ["persistence"] }
+miniz_oxide = "0.8"
 rfd = "0.17.2"
 serde = { version = "1.0.229", features = ["derive"] }
 yaml-rust2 = "0.13.0"

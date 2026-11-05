@@ -8,8 +8,9 @@ use eframe::egui::{
 };
 use serde::{Deserialize, Serialize};
 use speci_local::diag::{Diagnostic, Pane};
-use speci_local::file::{Doc, from_sp, to_sp};
-use speci_local::{Outcome, parse, run_test_with, scaffold};
+use speci_local::eval::{StepKind, Trace};
+use speci_local::file::{Doc, from_clipboard, from_sp, to_compact, to_sp};
+use speci_local::{Outcome, parse, run_test_with, scaffold, trace_test};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -31,6 +32,13 @@ const I_DATA: &str = "\u{f1c0}";
 const I_VIEW: &str = "\u{f0ae}";
 const I_WARN: &str = "\u{f071}";
 const I_BULB: &str = "\u{f0eb}";
+const I_COPY: &str = "\u{f0c5}";
+const I_PASTE: &str = "\u{f0ea}";
+const I_FIRST: &str = "\u{f049}";
+const I_PREV: &str = "\u{f048}";
+const I_NEXT: &str = "\u{f051}";
+const I_LAST: &str = "\u{f050}";
+const STEP_BG: Color32 = Color32::from_rgb(250, 204, 21);
 
 const GREEN: Color32 = Color32::from_rgb(46, 160, 67);
 const RED: Color32 = Color32::from_rgb(229, 72, 77);
@@ -43,9 +51,22 @@ enum Replace {
     New,
     Open,
     Load(PathBuf),
+    Import(Doc),
 }
 
-type EvalResult = Result<Vec<Outcome>, Vec<Diagnostic>>;
+struct EvalResult {
+    outcomes: Result<Vec<Outcome>, Vec<Diagnostic>>,
+    /// Steps of the selected test case, for the stepper.
+    trace: Option<Trace>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default)]
+enum View {
+    #[default]
+    Results,
+    Stepper,
+    StepList,
+}
 
 /// An evaluation running on a worker thread.
 struct Job {
@@ -90,6 +111,17 @@ struct App {
     path: Option<PathBuf>,
     /// Re-evaluate automatically shortly after every change.
     auto: bool,
+    view: View,
+    #[serde(skip)]
+    trace: Option<Trace>,
+    #[serde(skip)]
+    step: usize,
+    /// Test case the current trace belongs to.
+    #[serde(skip)]
+    traced_test: usize,
+    /// Fallback when the system clipboard can't be read: the user pastes here.
+    #[serde(skip)]
+    paste_box: Option<String>,
     #[serde(skip)]
     results: Vec<Option<Outcome>>,
     #[serde(skip)]
@@ -130,6 +162,11 @@ impl Default for App {
             show_v: true,
             path: None,
             auto: true,
+            view: View::Results,
+            trace: None,
+            step: 0,
+            traced_test: 0,
+            paste_box: None,
             results: vec![],
             job: None,
             confirm: None,
@@ -289,6 +326,21 @@ impl App {
                 }
             }
             Replace::Load(p) => self.load(&p),
+            Replace::Import(doc) => {
+                let font = self.font;
+                *self = App {
+                    font,
+                    auto: self.auto,
+                    view: self.view,
+                    show_s: self.show_s,
+                    show_d: self.show_d,
+                    show_v: self.show_v,
+                    ..App::default()
+                };
+                self.doc = doc;
+                self.saved = Doc::default(); // imported, not saved anywhere yet
+                self.status = "Project read from the clipboard (not saved to a file yet)".into();
+            }
         }
     }
 
@@ -342,18 +394,26 @@ impl App {
         let cancel = Arc::new(AtomicBool::new(false));
         let (tx, rx) = mpsc::channel();
         let (d, c) = (doc.clone(), cancel.clone());
+        let test = self.current;
+        self.traced_test = test;
         // big stack: deeply nested formulas and recursive functions are evaluated recursively
         let spawned = std::thread::Builder::new()
             .stack_size(64 << 20)
             .spawn(move || {
-                let r = parse(&d.spec).map(|spec| {
-                    d.tests
-                        .iter()
-                        .map(|t| run_test_with(&spec, t, &c))
-                        .collect()
-                });
+                let (outcomes, trace) = match parse(&d.spec) {
+                    Err(diags) => (Err(diags), None),
+                    Ok(spec) => {
+                        let outcomes = d
+                            .tests
+                            .iter()
+                            .map(|t| run_test_with(&spec, t, &c))
+                            .collect();
+                        let trace = d.tests.get(test).and_then(|t| trace_test(&spec, t, &c));
+                        (Ok(outcomes), trace)
+                    }
+                };
                 if !c.load(Ordering::Relaxed) {
-                    let _ = tx.send(r);
+                    let _ = tx.send(EvalResult { outcomes, trace });
                 }
             });
         self.submitted = doc_hash(&doc);
@@ -383,7 +443,8 @@ impl App {
             }
         };
         let job = self.job.take().unwrap();
-        match r {
+        self.trace = r.trace;
+        match r.outcomes {
             Err(d) => {
                 self.spec_diags = d;
                 self.results = vec![None; job.doc.tests.len()];
@@ -569,6 +630,13 @@ impl App {
                     let shift = ui.input(|i| i.modifiers.shift);
                     self.save(shift);
                 }
+                if ui.button(I_PASTE).on_hover_text("Read a project from the clipboard (Ctrl+Shift+V)").clicked() {
+                    self.paste_project();
+                }
+                if ui.button(I_COPY).on_hover_text("Copy the whole project to the clipboard as one compact line (Ctrl+Shift+C)").clicked() {
+                    self.copy_project(ui.ctx());
+                }
+                ui.separator();
                 if ui
                     .button(I_OPEN)
                     .on_hover_text("Open a .sp file (Ctrl+O)")
@@ -721,6 +789,11 @@ impl App {
     fn eval_pane(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             pane_title(ui, I_VIEW, "Evaluation");
+            ui.selectable_value(&mut self.view, View::Results, "Results");
+            ui.selectable_value(&mut self.view, View::Stepper, "Stepper")
+                .on_hover_text("Step through how the selected test case is evaluated (← / →)");
+            ui.selectable_value(&mut self.view, View::StepList, "Step list");
+            ui.separator();
             let run = egui::Button::new(
                 RichText::new(format!("{I_RUN}  Evaluate"))
                     .strong()
@@ -759,6 +832,13 @@ impl App {
                 );
             }
         });
+        if self.view != View::Results {
+            card(ui).inner_margin(Margin::same(10)).show(ui, |ui| {
+                ui.set_min_size(ui.available_size());
+                self.steps_ui(ui);
+            });
+            return;
+        }
         let mut jump: Option<(Diagnostic, usize)> = None;
         let mut select = None;
         card(ui).inner_margin(Margin::same(10)).show(ui, |ui| {
@@ -818,6 +898,249 @@ impl App {
         }
         if let Some((d, i)) = jump {
             self.jump(ui.ctx(), &d, i);
+        }
+    }
+
+    /// Stepper and step list (the original editor's visualization pane).
+    fn steps_ui(&mut self, ui: &mut egui::Ui) {
+        let Some(trace) = &self.trace else {
+            let msg = if self.spec_diags.is_empty() {
+                "No steps yet. They appear once the selected test case's data is valid."
+            } else {
+                "Fix the specification first; the steps appear once it parses."
+            };
+            ui.label(RichText::new(msg).weak());
+            return;
+        };
+        let src = self
+            .evaluated
+            .as_ref()
+            .map(|d| d.spec.as_str())
+            .unwrap_or("");
+        let n = trace.steps.len();
+        if n == 0 {
+            ui.label(
+                RichText::new("Nothing to step through: the conditions contain only constants.")
+                    .weak(),
+            );
+            return;
+        }
+        self.step = self.step.min(n - 1);
+        let snippet = |span: (usize, usize)| -> String {
+            let t = src
+                .get(span.0..span.1)
+                .unwrap_or("?")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            if t.chars().count() > 70 {
+                format!("{}…", t.chars().take(69).collect::<String>())
+            } else {
+                t
+            }
+        };
+        let describe = |st: &speci_local::eval::Step| match &st.kind {
+            StepKind::Value(v) => format!("{}  =  {v}", snippet(st.span)),
+            StepKind::Error(t) => format!("{}  ✗  {t}", snippet(st.span)),
+            StepKind::Enter(c) => format!("↓ {c}"),
+            StepKind::Leave(r) => format!("↑ {r}"),
+        };
+        let mut step = self.step;
+        let note = format!(
+            "Test case {}{}",
+            self.traced_test + 1,
+            if trace.truncated {
+                format!(" · only the first {n} steps are shown")
+            } else {
+                String::new()
+            }
+        );
+
+        if self.view == View::StepList {
+            ui.label(RichText::new(note).weak());
+            let row_h = ui.text_style_height(&TextStyle::Monospace) + 6.0;
+            egui::ScrollArea::vertical()
+                .id_salt("step-list")
+                .auto_shrink(false)
+                .show_rows(ui, row_h, n, |ui, range| {
+                    for i in range {
+                        let st = &trace.steps[i];
+                        let text = format!(
+                            "{:>5}  {}{:<5} {}",
+                            i + 1,
+                            "  ".repeat(st.depth),
+                            st.label,
+                            describe(st)
+                        );
+                        let mut rt = RichText::new(text).monospace();
+                        if matches!(st.kind, StepKind::Error(_)) {
+                            rt = rt.color(RED);
+                        }
+                        if ui
+                            .selectable_label(i == step, rt)
+                            .on_hover_text("Show this step in the stepper")
+                            .clicked()
+                        {
+                            step = i;
+                            self.view = View::Stepper;
+                        }
+                    }
+                });
+            self.step = step;
+            return;
+        }
+
+        // stepper: ← / → while no text field has the keyboard
+        if ui.memory(|m| m.focused().is_none()) {
+            ui.input_mut(|i| {
+                if i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight) {
+                    step = (step + 1).min(n - 1);
+                }
+                if i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft) {
+                    step = step.saturating_sub(1);
+                }
+            });
+        }
+        ui.horizontal(|ui| {
+            if ui.button(I_FIRST).on_hover_text("First step").clicked() {
+                step = 0;
+            }
+            if ui
+                .button(I_PREV)
+                .on_hover_text("Previous step (←)")
+                .clicked()
+            {
+                step = step.saturating_sub(1);
+            }
+            if ui.button(I_NEXT).on_hover_text("Next step (→)").clicked() {
+                step = (step + 1).min(n - 1);
+            }
+            if ui.button(I_LAST).on_hover_text("Last step").clicked() {
+                step = n - 1;
+            }
+            ui.spacing_mut().slider_width = (ui.available_width() - 260.0).clamp(120.0, 600.0);
+            let mut one_based = step + 1;
+            ui.add(egui::Slider::new(&mut one_based, 1..=n).text(format!("of {n}")));
+            step = one_based - 1;
+            ui.label(RichText::new(note).weak());
+        });
+        let st = &trace.steps[step];
+        ui.add_space(6.0);
+        // the whole formula, with the part evaluated in this step highlighted
+        let line_start = src
+            .get(..st.root.0)
+            .and_then(|b| b.rfind('\n'))
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        let line_end = src
+            .get(st.root.1..)
+            .and_then(|a| a.find('\n'))
+            .map(|i| i + st.root.1)
+            .unwrap_or(src.len());
+        let font = TextStyle::Monospace.resolve(ui.style());
+        let normal = ui.visuals().text_color();
+        let mut job = egui::text::LayoutJob::default();
+        for (a, b, hl) in [
+            (line_start, st.span.0, false),
+            (st.span.0, st.span.1, true),
+            (st.span.1, line_end, false),
+        ] {
+            if let Some(t) = src.get(a..b) {
+                let mut f = egui::TextFormat::simple(
+                    font.clone(),
+                    if hl { Color32::BLACK } else { normal },
+                );
+                if hl {
+                    f.background = STEP_BG;
+                }
+                job.append(t, 0.0, f);
+            }
+        }
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(&st.label).strong().color(ACCENT));
+            if st.depth > 0 {
+                ui.label(
+                    RichText::new(format!("inside a function call (depth {})", st.depth)).weak(),
+                );
+            }
+        });
+        egui::Frame::new()
+            .fill(ui.visuals().faint_bg_color)
+            .corner_radius(CornerRadius::same(6))
+            .inner_margin(Margin::same(8))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                egui::ScrollArea::horizontal()
+                    .id_salt("step-formula")
+                    .show(ui, |ui| ui.label(job));
+            });
+        ui.add_space(4.0);
+        let color = match &st.kind {
+            StepKind::Error(_) => RED,
+            StepKind::Enter(_) | StepKind::Leave(_) => ACCENT,
+            StepKind::Value(_) => ui.visuals().strong_text_color(),
+        };
+        ui.label(RichText::new(describe(st)).monospace().color(color));
+        if !st.scope.is_empty() {
+            let vars: Vec<String> = st.scope.iter().map(|(n, v)| format!("{n} = {v}")).collect();
+            ui.label(RichText::new(vars.join("   ")).monospace().weak());
+        }
+        self.step = step;
+    }
+
+    fn copy_project(&mut self, ctx: &egui::Context) {
+        let text = to_compact(&self.doc);
+        self.status = format!(
+            "Copied the whole project to the clipboard ({} characters)",
+            text.len()
+        );
+        ctx.copy_text(text);
+    }
+
+    fn paste_project(&mut self) {
+        match arboard::Clipboard::new().and_then(|mut c| c.get_text()) {
+            Ok(text) => self.import_text(&text),
+            // e.g. no clipboard access on this desktop: let the user paste into a text box
+            Err(_) => self.paste_box = Some(String::new()),
+        }
+    }
+
+    fn import_text(&mut self, text: &str) {
+        match from_clipboard(text) {
+            Ok(doc) => self.replace_doc(Replace::Import(doc)),
+            Err(e) => self.status = e,
+        }
+    }
+
+    fn paste_dialog(&mut self, ctx: &egui::Context) {
+        let Some(mut text) = self.paste_box.take() else {
+            return;
+        };
+        let mut done = false;
+        let modal = egui::Modal::new(Id::unique("paste-dialog")).show(ctx, |ui| {
+            ui.set_width(520.0);
+            ui.heading("Paste a project");
+            ui.label("The clipboard couldn't be read directly. Paste the copied project (SPECI1:…) or a specification here with Ctrl+V:");
+            ui.add(TextEdit::multiline(&mut text).desired_rows(6).desired_width(f32::INFINITY).font(TextStyle::Monospace));
+            ui.horizontal(|ui| {
+                if ui.button(format!("{I_PASTE}  Import")).clicked() {
+                    done = true;
+                }
+                if ui.button("Cancel").clicked() {
+                    text.clear();
+                    done = true;
+                }
+            });
+        });
+        if modal.should_close() && !done {
+            return; // closed with Escape or a click outside
+        }
+        if done {
+            if !text.trim().is_empty() {
+                self.import_text(&text);
+            }
+        } else {
+            self.paste_box = Some(text);
         }
     }
 
@@ -999,6 +1322,24 @@ impl eframe::App for App {
             self.replace_doc(Replace::Load(path));
         }
         self.confirm_dialog(&ctx);
+        self.paste_dialog(&ctx);
+        let (copy, paste) = ctx.input_mut(|i| {
+            let cs = egui::Modifiers::COMMAND | egui::Modifiers::SHIFT;
+            (
+                i.consume_key(cs, egui::Key::C),
+                i.consume_key(cs, egui::Key::V),
+            )
+        });
+        if copy {
+            self.copy_project(&ctx);
+        }
+        if paste {
+            self.paste_project();
+        }
+        // the stepper follows the selected test case
+        if self.current != self.traced_test && self.job.is_none() {
+            self.submitted = 0;
+        }
         if self.results.len() != self.doc.tests.len() {
             self.results.resize(self.doc.tests.len(), None);
         }

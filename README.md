@@ -30,6 +30,13 @@ The Release workflow then builds both platforms, runs the tests, and attaches th
 - Outputs left out of a test case are computed and shown, which is handy when you're writing tests.
 - An editor with syntax highlighting, line numbers and context-aware completion. It completes block headers at the start of a line, set names after `∈`, and the variables, types and functions you've declared. Theorem macros and quantifiers insert as snippets, e.g. `SUM` becomes `SUM(i=1..n, |)`. Typing `forall`, `exists` or `leq` inserts ∀ / ∃ / ≤. Use ↑↓ to choose, Tab or Enter to insert, Esc to close.
 - When evaluation finds an error, its line is tinted in the editor. Click the location on an error card to jump there.
+- **Stepper** (as in the original): pick *Stepper* in the Evaluation pane to walk through the selected test case one reduction at a time.
+  - The formula is shown with the part being evaluated highlighted, along with its value and the current loop variables.
+  - `↓`/`↑` mark entering and leaving your `Fv:` functions; inside a function, its body becomes the formula shown.
+  - Step with ← / → or the buttons and slider. *Step list* shows every step at once; click one to jump to it.
+- **Copy / paste a whole project.** The copy button (Ctrl+Shift+C) puts the spec and all test cases on the clipboard as one compact line (`SPECI1:…`, compressed). It's handy for sending through chat.
+  - The paste button (Ctrl+Shift+V) turns that line, or plain specification text, back into the project.
+  - If the system clipboard can't be read, a box opens where you can paste with Ctrl+V instead.
 - Light, dark or system theme, and an adjustable font size.
 
 ## `.sp` files
