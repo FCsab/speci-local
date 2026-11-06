@@ -74,12 +74,13 @@ pub const SYMBOL_KEYS: &[(Key, &str)] = &[
 ];
 
 pub const HEADERS: &[&str] = &[
-    "Be", "Sa", "Ki", "Fv", "Ef", "Uf", "In", "Aux", "Out", "Fn", "Pre", "Post",
+    "Be", "Sa", "Ki", "Fv", "Ef", "Uf", "In", "Aux", "Out", "Fn", "Pre", "Post", "Def",
 ];
 const KEYWORDS: &[&str] = &[
-    "and", "or", "not", "és", "vagy", "nem", "mod", "element", "exists", "forall", "true", "false",
+    "and", "or", "not", "és", "vagy", "nem", "mod", "div", "eleme", "in", "exists", "forall",
+    "létezik", "minden", "true", "false", "igaz", "hamis",
 ];
-const GLYPHS: &str = "∈∀∃≠≤≥→¬∧∨–−";
+const GLYPHS: &str = "∈∀∃≠≤≥∤¬–−";
 
 // ---------------------------------------------------------------- highlighting
 
@@ -330,13 +331,15 @@ pub fn scan_symbols(src: &str) -> Vec<Item> {
         let after_t = after.trim_start_matches([' ', '\t']);
         let quantified = matches!(prev, Some('∀' | '∃'));
         if !quantified
-            && (after_t.starts_with('∈') || after_t.starts_with("element "))
+            && (after_t.starts_with('∈')
+                || after_t.starts_with("eleme ")
+                || after_t.starts_with("in "))
             && !KEYWORDS.contains(&w)
         {
             let skip = if after_t.starts_with('∈') {
                 '∈'.len_utf8()
             } else {
-                "element ".len()
+                after_t.find(' ').unwrap() + 1
             };
             let ty_pos = src.len() - after_t.len() + skip;
             add(item(w, w, &format!("∈ {}", tail(ty_pos)), Kind::Var));
@@ -348,7 +351,7 @@ pub fn scan_symbols(src: &str) -> Vec<Item> {
             add(item(w, w, &format!("= {}", tail(pos)), Kind::Type));
         } else if after_t.starts_with(':') && !HEADERS.contains(&w) {
             let sig = tail(src.len() - after_t.len() + 1);
-            if sig.contains("->") || sig.contains('→') {
+            if sig.contains("->") {
                 add(item(w, &format!("{w}($)"), &sig, Kind::Func));
             }
         }
@@ -394,7 +397,7 @@ fn spec_items(symbols: &[Item], line_start: bool, after_elem: bool) -> Vec<Item>
     }
     for (name, _, _, usage) in MACROS {
         let snippet = match *name {
-            "SELECT" => "SELECT(i≥1, $)".to_string(),
+            "SELECT" => "SELECT(i>=1, $)".to_string(),
             "CONDMAX" | "CONDMIN" => format!("{name}(i=1..n, $, )"),
             _ => format!("{name}(i=1..n, $)"),
         };
@@ -402,7 +405,7 @@ fn spec_items(symbols: &[Item], line_start: bool, after_elem: bool) -> Vec<Item>
     }
     v.push(item("forall", "∀i∈[1..n]:($)", "∀ for all", Keyword));
     v.push(item("exists", "∃i∈[1..n]:($)", "∃ there exists", Keyword));
-    v.push(item("element", "∈", "∈ element of", Keyword));
+    v.push(item("in", "∈", "∈ element of", Keyword));
     v.push(item("neq", "≠", "≠ not equal", Keyword));
     v.push(item("leq", "≤", "≤ less or equal", Keyword));
     v.push(item("geq", "≥", "≥ greater or equal", Keyword));
@@ -413,6 +416,7 @@ fn spec_items(symbols: &[Item], line_start: bool, after_elem: bool) -> Vec<Item>
         ("és", "logical and"),
         ("vagy", "logical or"),
         ("mod", "remainder"),
+        ("div", "whole-number division"),
         ("true", ""),
         ("false", ""),
     ] {
@@ -422,7 +426,9 @@ fn spec_items(symbols: &[Item], line_start: bool, after_elem: bool) -> Vec<Item>
         ("length", "number of elements"),
         ("from", "first index"),
         ("to", "last index"),
-        ("ABS", "absolute value"),
+        ("abs", "absolute value"),
+        ("sqrt", "square root"),
+        ("round", "nearest whole number"),
     ] {
         v.push(item(f, &format!("{f}($)"), d, Func));
     }

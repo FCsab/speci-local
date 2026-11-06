@@ -279,6 +279,12 @@ pub fn load(spec: &Spec, text: &str) -> Result<Env, Diagnostic> {
     for d in order {
         let line = key_line(text, &d.name);
         let value = match map.get(&Yaml::String(d.name.clone())) {
+            Some(_) if d.init.is_some() => {
+                return Err(Diagnostic::new(line, 1, format!("`{}` already has its value in the specification", d.name))
+                    .explain(format!("`{}` is declared with an initial value, so the test data must not give it again. The online editor reports this as \"data cannot contain item with the same name: {}\".", d.name, d.name))
+                    .hint(format!("Delete the `{}:` line from this test case.", d.name))
+                    .data());
+            }
             Some(y) => {
                 let mut c = Conv {
                     spec,
@@ -304,26 +310,39 @@ pub fn load(spec: &Spec, text: &str) -> Result<Env, Diagnostic> {
             None => match &d.init {
                 Some(init) => {
                     let mut v = ev.eval(init, &mut env.clone())?;
-                    if let (Value::Arr { from, .. }, Some(Type::Array { lo, .. })) =
-                        (&mut v, spec.resolve(&d.ty))
-                        && let Ok(Value::Int(f)) = ev.eval(lo, &mut env.clone())
-                    {
-                        *from = f;
+                    // every dimension takes its start index from the declaration (`Z[-1..1,-1..1]`)
+                    let mut starts = Vec::new();
+                    let mut t = spec.resolve(&d.ty);
+                    while let Some(Type::Array { lo, elem, .. }) = t {
+                        match ev.eval(lo, &mut env.clone()) {
+                            Ok(Value::Int(f)) => starts.push(f),
+                            _ => break,
+                        }
+                        t = spec.resolve(elem);
                     }
+                    crate::eval::set_from(&mut v, &starts);
                     v
                 }
-                None if d.role == Role::In => {
+                None => {
+                    let what = match d.role {
+                        Role::In => "Input",
+                        Role::Aux => "Auxiliary variable",
+                        Role::Out => "Output",
+                    };
+                    let mut why = "Every declared variable needs a value in each test case: inputs, auxiliary variables and outputs alike.".to_string();
+                    if d.role != Role::In {
+                        why += " Give one even when it doesn't matter (for example `ind` when SEARCH found nothing): any valid value will do.";
+                    }
                     return Err(Diagnostic::plain(format!(
-                        "Input `{}` is missing from this test case",
+                        "{what} `{}` is missing from this test case",
                         d.name
                     ))
-                    .explain("Every input variable needs a value in each test case.")
+                    .explain(why)
                     .hint(format!(
                         "Add a line `{}: …`, or press Scaffold to insert every variable name.",
                         d.name
-                    )));
+                    )).data());
                 }
-                None => continue, // aux/out without expected value: the postcondition may compute it
             },
         };
         env.insert(d.name.clone(), value);

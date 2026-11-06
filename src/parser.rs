@@ -20,7 +20,8 @@ pub enum ExprKind {
     Bool(bool),
     Var(String),
     Tuple(Vec<Option<Expr>>),
-    Array(Vec<Expr>),
+    /// Array literal; `from` holds the start indexes of `[0..:1, 2]` / `[1..,1..:[1,2],[3,4]]`.
+    Array(Vec<Expr>, Vec<Expr>),
     Neg(Expr),
     Not(Expr),
     Bin(BinOp, Expr, Expr),
@@ -54,6 +55,8 @@ pub enum BinOp {
     Mul,
     Div,
     Mod,
+    /// `div`: whole-number division rounded down
+    IDiv,
     And,
     Or,
     Imp,
@@ -157,7 +160,7 @@ pub const MACROS: &[(&str, usize, usize, &str)] = &[
     ("MIN", 1, 1, "(ind, value)=MIN(i=b..e, f(i))"),
     ("EXISTS", 1, 1, "EXISTS(i=b..e, condition)"),
     ("FORALL", 1, 1, "FORALL(i=b..e, condition)"),
-    ("SELECT", 1, 1, "ind=SELECT(i≥b, condition)"),
+    ("SELECT", 1, 1, "ind=SELECT(i>=b, condition)"),
     ("SEARCH", 1, 1, "(van, ind)=SEARCH(i=b..e, condition)"),
     ("COPY", 1, 1, "y=COPY(i=b..e, f(i))"),
     (
@@ -180,12 +183,35 @@ pub const MACROS: &[(&str, usize, usize, &str)] = &[
     ),
 ];
 
+/// Other names the online editor accepts for the patterns → the name used here.
+pub fn macro_alias(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "SZUMMA" | "SZUM" => "SUM",
+        "MEGSZÁMOL" => "COUNT",
+        "ELDÖNT" | "DECISION" | "VAN" | "LÉTEZIK" => "EXISTS",
+        "MIND" | "EVERY" => "FORALL",
+        "KERES" => "SEARCH",
+        "KIVÁLASZT" => "SELECT",
+        "MÁSOL" | "MAP" => "COPY",
+        "KIVÁLOGAT" | "FILTER" => "MIS",
+        "MAXHA" | "MAXIF" | "FELTMAX" => "CONDMAX",
+        "MINHA" | "MINIF" | "FELTMIN" => "CONDMIN",
+        _ => return None,
+    })
+}
+
 pub const BUILTINS: &[(&str, usize)] = &[
     ("length", 1),
+    ("hossz", 1),
     ("from", 1),
+    ("tól", 1),
     ("to", 1),
-    ("ABS", 1),
+    ("ig", 1),
     ("abs", 1),
+    ("sqrt", 1),
+    ("round", 1),
+    ("kerekít", 1),
+    ("!", 1), // postfix factorial `n!`
 ];
 
 // ---------------------------------------------------------------- lexer
@@ -209,7 +235,7 @@ struct Token {
 }
 
 const SYMS: &[&str] = &[
-    "..", "->", "<=", ">=", "!=", ":=", "=", "<", ">", "+", "-", "*", "/", "%", "|", "(", ")", "[",
+    "..", "->", "<=", ">=", "!=", "<>", "!", ":=", "=", "<", ">", "+", "-", "*", "/", "%", "|", "(", ")", "[",
     "]", "{", "}", ",", ":", ".",
 ];
 
@@ -219,9 +245,10 @@ fn word_sym(w: &str) -> Option<&'static str> {
         "or" | "vagy" => "or",
         "not" | "nem" => "not",
         "mod" => "%",
-        "element" => "∈",
-        "exists" => "∃",
-        "forall" => "∀",
+        "div" => "div",
+        "eleme" | "in" => "∈",
+        "exists" | "létezik" => "∃",
+        "forall" | "minden" => "∀",
         _ => return None,
     })
 }
@@ -234,9 +261,7 @@ fn glyph_sym(c: char) -> Option<&'static str> {
         '≤' => "<=",
         '≥' => ">=",
         '≠' => "!=",
-        '→' => "->",
-        '∧' => "and",
-        '∨' => "or",
+        '∤' => "∤",
         '¬' => "not",
         '–' | '−' => "-", // en dash / minus sign, as in "Pre: –"
         _ => return None,
@@ -338,12 +363,19 @@ fn lex(src: &str, orig: &str, from: usize, to: usize) -> Result<Vec<Token>, Diag
             for _ in 0..sym.len() {
                 it.next();
             }
+            let sym = if *sym == "<>" { "!=" } else { sym };
             push(&mut toks, Tok::Sym(sym), at(i + sym.len()));
         } else {
             let (l, col) = line_col(orig, start);
-            return Err(Diagnostic::new(l, col, format!("Unexpected character `{c}`"))
-                .explain("This character is not part of the specification language.")
-                .hint("Use the symbol buttons (∈ ∀ ∃ ≠ ≤ ≥ →) or their ASCII forms (element, forall, exists, !=, <=, >=, ->)."));
+            let mut d = Diagnostic::new(l, col, format!("Unexpected character `{c}`"))
+                .explain("This character is not part of the specification language.");
+            d = match c {
+                '→' => d.hint("Write the arrow as `->`. The online editor rejects `→`."),
+                '∧' => d.hint("Write `and` (or `és`)."),
+                '∨' => d.hint("Write `or` (or `vagy`)."),
+                _ => d.hint("Use the symbol buttons (∈ ∀ ∃ ≠ ≤ ≥) or their word forms (in, forall, exists, !=, <=, >=)."),
+            };
+            return Err(d);
         }
     }
     toks.push(Token {
@@ -420,6 +452,7 @@ const HEADERS: &[(&str, Kind)] = &[
     ("Ef", Kind::Pre),
     ("Post", Kind::Post),
     ("Uf", Kind::Post),
+    ("Def", Kind::Fn),
 ];
 
 /// Plausible but wrong header spellings → the real one.
@@ -457,7 +490,7 @@ struct Block {
 }
 
 fn split_blocks(src: &str) -> Result<Vec<Block>, Diagnostic> {
-    let all_headers = "In: Be: Aux: Sa: Out: Ki: Fn: Fv: Pre: Ef: Post: Uf:";
+    let all_headers = "In: Be: Aux: Sa: Out: Ki: Fn: Fv: Def: Pre: Ef: Post: Uf:";
     let mut blocks: Vec<Block> = Vec::new();
     let mut offset = 0;
     let mut first_content: Option<usize> = None;
@@ -574,7 +607,8 @@ fn split_blocks(src: &str) -> Result<Vec<Block>, Diagnostic> {
     };
     let mut seen: Vec<&Block> = Vec::new();
     for b in &blocks {
-        if let Some(prev) = seen.iter().find(|p| p.kind == b.kind) {
+        // functions: one `Fn:` header per function, so that block repeats
+        if let Some(prev) = seen.iter().find(|p| p.kind == b.kind && b.kind != Kind::Fn) {
             return Err(Diagnostic::new(b.line, 1, format!("Second `{}` block", b.kw))
                 .explain(format!("This kind of block was already started at line {} (`{}`). Each block may appear only once.", prev.line, prev.kw))
                 .hint("Merge the two blocks: separate the items with commas."));
@@ -639,9 +673,11 @@ fn describe(t: &Token) -> String {
 
 fn reserved_meaning(word: &str) -> Option<&'static str> {
     Some(match word {
-        "exists" => "the ASCII spelling of ∃",
-        "forall" => "the ASCII spelling of ∀",
-        "element" => "the ASCII spelling of ∈",
+        "exists" | "létezik" => "the word form of ∃",
+        "forall" | "minden" => "the word form of ∀",
+        "in" | "eleme" => "the word form of ∈",
+        "div" => "whole-number division",
+        "igaz" | "hamis" => "a logical constant",
         "and" | "és" => "logical AND",
         "or" | "vagy" => "logical OR",
         "not" | "nem" => "logical NOT",
@@ -718,7 +754,7 @@ impl<'a> Parser<'a> {
     fn ident(&mut self, what: &str) -> PResult<String> {
         let t = self.peek().clone();
         match &t.tok {
-            Tok::Ident(n) if !matches!(n.as_str(), "true" | "false") => {
+            Tok::Ident(n) if !matches!(n.as_str(), "true" | "false" | "igaz" | "hamis") => {
                 self.next();
                 Ok(n.clone())
             }
@@ -792,7 +828,7 @@ impl<'a> Parser<'a> {
                 return Err(self
                     .err_at(self.peek().start, "Use `∈` to declare a variable")
                     .explain("`:` is only used for record fields like `(name:S x age:N)` and function signatures.")
-                    .hint(format!("Write `{name}∈…` (or `{name} element …`).")));
+                    .hint(format!("Write `{name}∈…` (or `{name} eleme …`).")));
             } else {
                 return Err(self.unexpected(&format!(
                     "`∈` after `{name}` (a declaration looks like `{name}∈N`)"
@@ -936,81 +972,82 @@ impl<'a> Parser<'a> {
 
     // ---- functions
 
+    /// One function per header, as in the online editor: `name:Dom->Cod, name(params)=body`.
     fn fn_block(&mut self, funcs: &mut HashMap<String, Func>) -> PResult<()> {
-        let mut sigs: Vec<(String, usize)> = Vec::new();
+        let t = self.peek().clone();
+        let name = self.ident("function name")?;
+        if self.is("(") {
+            return Err(self
+                .err_at(self.peek().start, format!("`{name}` has no signature"))
+                .explain("Each function starts with its signature, then a comma and the definition.")
+                .hint(format!("Write `{name}:N->N, {name}(…)=…`.")));
+        }
+        self.expect(":", &format!("`:` and the signature (like `{name}:N->N`)"))?;
+        // signature: types joined by x, ->, types joined by x
         loop {
-            let t = self.peek().clone();
-            let name = self.ident("function name")?;
-            if self.eat(":") {
-                // signature: types joined by x, ->, types joined by x
-                loop {
-                    self.ty()?;
-                    if matches!(&self.peek().tok, Tok::Ident(x) if x == "x") || self.is("*") {
-                        self.next();
-                        continue;
-                    }
-                    break;
-                }
-                self.expect(
-                    "->",
-                    &format!("`->` between the domain and the codomain (like `{name}:N->L`)"),
-                )?;
-                loop {
-                    self.ty()?;
-                    if matches!(&self.peek().tok, Tok::Ident(x) if x == "x") || self.is("*") {
-                        self.next();
-                        continue;
-                    }
-                    break;
-                }
-                sigs.push((name, t.start));
-            } else if self.eat("(") {
-                let mut params = Vec::new();
-                if !self.is(")") {
-                    loop {
-                        params.push(self.ident("parameter name")?);
-                        if !self.eat(",") {
-                            break;
-                        }
-                    }
-                }
-                self.expect(")", "`)` after the parameters")?;
-                if self.is(":=") {
-                    return Err(self.unexpected("`=`"));
-                }
-                self.expect("=", &format!("`=` and the definition of `{name}`"))?;
-                let body = self.expr()?;
-                if funcs.contains_key(&name) {
-                    return Err(self
-                        .err_at(t.start, format!("`{name}` is defined twice"))
-                        .hint("Keep only one definition."));
-                }
-                funcs.insert(name, Func { params, body });
-            } else {
-                return Err(self.unexpected(&format!(
-                    "`:` (signature, like `{name}:N->N`) or `(` (definition, like `{name}(i)=…`)"
-                )));
-            }
-            if self.eat(",") {
+            self.ty()?;
+            if matches!(&self.peek().tok, Tok::Ident(x) if x == "x") || self.is("*") {
+                self.next();
                 continue;
             }
-            if self.peek().tok == Tok::Eof {
-                break;
-            }
-            return Err(self.unexpected("`,` between the signature and the definition"));
+            break;
         }
-        for (name, off) in sigs {
-            if !funcs.contains_key(&name) {
-                return Err(self
-                    .err_at(
-                        off,
-                        format!("Function `{name}` has a signature but no definition"),
-                    )
-                    .hint(format!(
-                        "Add the definition after a comma, e.g. `, {name}(i)=…`"
-                    )));
+        self.expect(
+            "->",
+            &format!("`->` between the domain and the codomain (like `{name}:N->L`)"),
+        )?;
+        loop {
+            self.ty()?;
+            if matches!(&self.peek().tok, Tok::Ident(x) if x == "x") || self.is("*") {
+                self.next();
+                continue;
+            }
+            break;
+        }
+        if !self.eat(",") {
+            return Err(self.unexpected(&format!(
+                "`,` and the definition (like `, {name}(i)=…`)"
+            )));
+        }
+        let dt = self.peek().clone();
+        let def = self.ident("function name")?;
+        if def != name {
+            return Err(self
+                .err_at(dt.start, format!("The signature is for `{name}`, but this defines `{def}`"))
+                .explain("Each `Fn:` header holds one function: its signature, then its definition.")
+                .hint(format!("Write `{name}(…)=…` here, and give `{def}` its own `Fn:` header.")));
+        }
+        self.expect("(", &format!("`(` and the parameters of `{name}`"))?;
+        let mut params = Vec::new();
+        if !self.is(")") {
+            loop {
+                params.push(self.ident("parameter name")?);
+                if !self.eat(",") {
+                    break;
+                }
             }
         }
+        self.expect(")", "`)` after the parameters")?;
+        if self.is(":=") {
+            return Err(self.unexpected("`=`"));
+        }
+        self.expect("=", &format!("`=` and the definition of `{name}`"))?;
+        let body = self.expr()?;
+        if self.is(",") {
+            return Err(self
+                .err_at(self.peek().start, "Only one function per `Fn:` header")
+                .explain("The online editor reads a comma-separated list of functions as a syntax error.")
+                .hint("Start the next function on a new line with its own `Fn:` header."));
+        }
+        if self.peek().tok != Tok::Eof {
+            return Err(self.unexpected("the end of the function definition"));
+        }
+        if funcs.contains_key(&name) {
+            return Err(self
+                .err_at(t.start, format!("`{name}` is defined twice"))
+                .hint("Keep only one definition."));
+        }
+        funcs.insert(name, Func { params, body });
         Ok(())
     }
 
@@ -1080,7 +1117,7 @@ impl<'a> Parser<'a> {
         }
         let mut operands = vec![first];
         let mut ops = Vec::new();
-        while let Tok::Sym(s @ ("=" | "!=" | "<" | ">" | "<=" | ">=" | "|")) = self.peek().tok {
+        while let Tok::Sym(s @ ("=" | "!=" | "<" | ">" | "<=" | ">=" | "|" | "∤")) = self.peek().tok {
             self.next();
             ops.push(s);
             operands.push(self.add()?);
@@ -1118,6 +1155,8 @@ impl<'a> Parser<'a> {
                 BinOp::Div
             } else if self.eat("%") {
                 BinOp::Mod
+            } else if self.eat("div") {
+                BinOp::IDiv
             } else {
                 return Ok(l);
             };
@@ -1165,6 +1204,8 @@ impl<'a> Parser<'a> {
                     }
                 };
                 e = self.mk(start, ExprKind::Field(e, f));
+            } else if self.eat("!") {
+                e = self.mk(start, ExprKind::Call("!".into(), vec![e]));
             } else {
                 return Ok(e);
             }
@@ -1207,11 +1248,12 @@ impl<'a> Parser<'a> {
             }
             Tok::Ident(name) => {
                 self.next();
-                if name == "true" || name == "false" {
-                    return Ok(self.mk(start, ExprKind::Bool(name == "true")));
+                if matches!(name.as_str(), "true" | "false" | "igaz" | "hamis") {
+                    return Ok(self.mk(start, ExprKind::Bool(matches!(name.as_str(), "true" | "igaz"))));
                 }
-                if let Some(&(_, min, max, usage)) = MACROS.iter().find(|m| m.0 == name) {
-                    return self.macro_call(start, name, min, max, usage);
+                let canon = macro_alias(&name).unwrap_or(&name);
+                if let Some(&(m, min, max, usage)) = MACROS.iter().find(|m| m.0 == canon) {
+                    return self.macro_call(start, m.to_string(), min, max, usage);
                 }
                 let upper = name.to_uppercase();
                 if self.is("(") && upper != name && MACROS.iter().any(|m| m.0 == upper) {
@@ -1266,9 +1308,23 @@ impl<'a> Parser<'a> {
             Tok::Sym("[") => {
                 self.next();
                 let mut items = Vec::new();
+                let mut from = Vec::new();
                 if !self.eat("]") {
                     loop {
-                        items.push(self.expr()?);
+                        let x = self.expr()?;
+                        // `[0..:1, 2]`: start indexes, one per dimension, before a `:`
+                        if items.is_empty() && self.eat("..") {
+                            from.push(x);
+                            if self.eat(",") {
+                                continue;
+                            }
+                            self.expect(":", "`:` after the index ranges (like `[0..:1, 2, 3]`)")?;
+                            if self.eat("]") {
+                                break;
+                            }
+                            continue;
+                        }
+                        items.push(x);
                         if self.eat(",") {
                             continue;
                         }
@@ -1278,7 +1334,7 @@ impl<'a> Parser<'a> {
                         return Err(self.unexpected("`,` or `]` in the array literal"));
                     }
                 }
-                Ok(self.mk(start, ExprKind::Array(items)))
+                Ok(self.mk(start, ExprKind::Array(items, from)))
             }
             Tok::Sym(q @ ("∀" | "∃")) => {
                 let word = t.text.chars().all(char::is_alphabetic);
@@ -1342,6 +1398,12 @@ impl<'a> Parser<'a> {
         let open = self.next();
         let var = self.ident(&format!("loop variable (usage: {usage})"))?;
         let (lo, hi) = if name == "SELECT" {
+            if self.peek().text == "≥" {
+                return Err(self
+                    .err_at(self.peek().start, "Expected `>=` but found `≥`")
+                    .explain("Inside SELECT the online editor only accepts `>=`, although `≥` works everywhere else.")
+                    .hint("Write `SELECT(i>=1, …)`."));
+            }
             if !self.eat(">=") {
                 return Err(self.unexpected(&format!("`≥` (or `>=`) — usage: {usage}")));
             }
@@ -1474,7 +1536,8 @@ fn walk<'e>(e: &'e Expr, f: &mut dyn FnMut(&'e Expr)) {
     let mut go = |x: &'e Expr| walk(x, f);
     match &*e.kind {
         ExprKind::Tuple(s) => s.iter().flatten().for_each(go),
-        ExprKind::Array(v) | ExprKind::Call(_, v) => v.iter().for_each(go),
+        ExprKind::Array(v, f) => v.iter().chain(f).for_each(go),
+        ExprKind::Call(_, v) => v.iter().for_each(go),
         ExprKind::Neg(a) | ExprKind::Not(a) | ExprKind::Field(a, _) => go(a),
         ExprKind::Bin(_, a, b) => {
             go(a);
@@ -1634,7 +1697,7 @@ fn check(spec: &Spec) -> Vec<Diagnostic> {
                     .chain(BUILTINS.iter().map(|b| b.0))
                     .collect();
                 d = d.explain(format!(
-                    "Functions must be defined in the `Fn:`/`Fv:` block. Built-in ones: length, from, to, ABS.{}",
+                    "Functions must be defined in a `Fn:`/`Fv:` block. Built-in ones: length (hossz), from (tól), to (ig), abs, sqrt, round (kerekít).{}",
                     did_you_mean(&name, cands)
                 ));
             }
@@ -1708,18 +1771,39 @@ fn check(spec: &Spec) -> Vec<Diagnostic> {
     } else {
         ("In:", "Post:", "Pre:")
     };
-    for d in spec.decls.iter().filter(|d| d.role == Role::In) {
+    let _ = inkw;
+    for d in &spec.decls {
         if !in_post.contains(d.name.as_str()) {
+            let what = match d.role {
+                Role::In => "Input",
+                Role::Aux => "Auxiliary variable",
+                Role::Out => "Output",
+            };
             diags.push(
-                Diagnostic::new(d.line, d.col, format!("Input `{}` is never used in the postcondition", d.name))
+                Diagnostic::new(d.line, d.col, format!("{what} `{}` is never used in the postcondition", d.name))
                     .explain(format!(
-                        "Every variable declared in `{inkw}` must appear in `{postkw}` (directly or inside a function it calls). Using it only in `{prekw}` doesn't count. The ELTE editor reports this as \"{} is missing from the post condition!\".",
+                        "Every declared variable (input, auxiliary and output, constants too) must appear in `{postkw}` (directly or inside a function it calls). Using it only in `{prekw}` doesn't count. The online editor reports this as \"{} is missing from the post condition!\".",
                         d.name
                     ))
                     .hint(format!("If it really isn't needed, append `and {0}={0}` to the postcondition.", d.name)),
             );
         }
     }
+    // outputs belong to the postcondition
+    let mut seen_out = HashSet::new();
+    walk(&spec.pre, &mut |x| {
+        if let ExprKind::Var(n) = &*x.kind
+            && spec.decl(n).is_some_and(|d| d.role == Role::Out)
+            && seen_out.insert(n.clone())
+        {
+            let (l, c) = spec.pos(x.start);
+            diags.push(
+                Diagnostic::new(l, c, format!("Output `{n}` is used in the precondition"))
+                    .explain(format!("The precondition may only talk about the input. The online editor reports this as \"Output data {n} is in the precondition!\"."))
+                    .hint(format!("Move the condition on `{n}` into `{postkw}`.")),
+            );
+        }
+    });
     diags.sort_by_key(|d| (d.line, d.col));
     diags
 }
@@ -1727,7 +1811,8 @@ fn check(spec: &Spec) -> Vec<Diagnostic> {
 fn direct_children(e: &Expr) -> Vec<&Expr> {
     match &*e.kind {
         ExprKind::Tuple(s) => s.iter().flatten().collect(),
-        ExprKind::Array(v) | ExprKind::Call(_, v) | ExprKind::Cmp(v, _) => v.iter().collect(),
+        ExprKind::Array(v, f) => v.iter().chain(f).collect(),
+        ExprKind::Call(_, v) | ExprKind::Cmp(v, _) => v.iter().collect(),
         ExprKind::Neg(a) | ExprKind::Not(a) | ExprKind::Field(a, _) => vec![a],
         ExprKind::Bin(_, a, b) => vec![a, b],
         ExprKind::In(a, b, c) => vec![a, b, c],

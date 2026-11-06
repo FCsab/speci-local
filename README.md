@@ -25,11 +25,13 @@ The Release workflow then builds both platforms, runs the tests, and attaches th
 
 ## What it does
 
-- Supports the full grammar from `SKILL.md`: elementary sets, intervals, arrays/matrices, records, type aliases, `Fn:` functions, ∀/∃, chained comparisons, `->`, `|`, `mod`/`%`,
-  and the macros `SUM` (with filter), `COUNT`/`DARAB`, `MAX`, `MIN`, `EXISTS`, `FORALL`, `SELECT`, `SEARCH`, `COPY`, `MIS`, `CONDMAX`, `CONDMIN`.
-- Checks the same rules as the ELTE editor (All Variables Mandate, reserved names such as `exists`, block order, header spelling), so a specification that's green here should also pass there.
-- **Error messages are more detailed than the original's.** Each one shows the line, a caret, an explanation and a concrete fix. When a postcondition fails, it tells you which part failed and what the specification computes compared to what the test case expects (e.g. "`cnt`: the test case says 2, the specification gives 3").
-- Outputs left out of a test case are computed and shown, which is handy when you're writing tests.
+- Accepts and rejects the same specifications as the online editor, and judges every test case the same way (checked against the online editor's own evaluator on 816 cases):
+  - elementary sets, intervals, arrays/matrices (also with an initial value and any index range), records, type aliases, array literals with an index range (`[0..:1, 2]`);
+  - functions, one per `Fn:`/`Fv:`/`Def:` header (signature first);
+  - ∀/∃ and their word forms (`forall`/`minden`, `exists`/`létezik`, `in`/`eleme`), `true`/`igaz`, `false`/`hamis`, `->`, `|`, `∤`, `<>`, `mod`/`%`, `div`, `n!`, and `abs`, `sqrt`, `round`/`kerekít`, `length`/`hossz`, `from`/`tól`, `to`/`ig`;
+  - the patterns `SUM`, `COUNT`, `MAX`, `MIN`, `EXISTS`, `FORALL`, `SELECT`, `SEARCH`, `COPY`, `MIS`, `CONDMAX`, `CONDMIN` and their other names (`SZUMMA`, `MEGSZÁMOL`, `ELDÖNT`, `MIND`, `KERES`, `KIVÁLASZT`, `MÁSOL`/`MAP`, `KIVÁLOGAT`/`FILTER`, `MAXHA`, `MINHA`, …).
+- Rejects what the online editor rejects: `→`, `∧`/`∨`, `ABS`, `element`, `SELECT(i≥…)`, several functions in one block, outputs in the precondition, declared variables missing from the postcondition, and test cases that leave out a value or repeat a constant.
+- When a test case fails, the values the specification would give are computed and shown.
 - An editor with syntax highlighting, line numbers and context-aware completion. It completes block headers at the start of a line, set names after `∈`, and the variables, types and functions you've declared. Theorem macros and quantifiers insert as snippets, e.g. `SUM` becomes `SUM(i=1..n, |)`. Typing `forall`, `exists` or `leq` inserts ∀ / ∃ / ≤. Use ↑↓ to choose, Tab or Enter to insert, Esc to close.
 - When evaluation finds an error, its line is tinted in the editor. Click the location on an error card to jump there.
 - **Stepper** (as in the original): pick *Stepper* in the Evaluation pane to walk through the selected test case one reduction at a time.

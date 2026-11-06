@@ -39,10 +39,10 @@ fn spec_err(spec: &str) -> String {
 #[test]
 fn baseline1_select() {
     green(
-        "In: n∈N, nums∈Z[1..n]\nOut: ind∈N\nPre: ∃i∈[1..n]:(nums[i] mod 2 = 1)\nPost: ind=SELECT(i≥1, nums[i] mod 2 = 1) and n=n",
+        "In: n∈N, nums∈Z[1..n]\nOut: ind∈N\nPre: ∃i∈[1..n]:(nums[i] mod 2 = 1)\nPost: ind=SELECT(i>=1, nums[i] mod 2 = 1) and n=n",
         &[
             "n: 5\nnums: [23, 25, 26, 28, 29]\nind: 1",
-            "n: 3\nnums: [2, 4, 7]\n",
+            "n: 3\nnums: [2, 4, 7]\nind: 3",
         ],
     );
 }
@@ -61,7 +61,7 @@ fn baseline2_count() {
 
 #[test]
 fn baseline3_search_failure_both_conventions() {
-    let spec = "In: n∈N, c∈N[1..n,1..4]\nAux: van∈L\nOut: ind∈N\nFn: more5:N→L, more5(i)=FORALL(j=1..4,c[i,j]>5)\nPre: -\nPost: (van,ind)=SEARCH(i=1..n, more5(i))";
+    let spec = "In: n∈N, c∈N[1..n,1..4]\nAux: van∈L\nOut: ind∈N\nFn: more5:N->L, more5(i)=FORALL(j=1..4,c[i,j]>5)\nPre: -\nPost: (van,ind)=SEARCH(i=1..n, more5(i))";
     let m = "c: [\n  [5, 6, 7, 4],\n  [6, 4, 6, 8],\n  [1, 2, 3, 4]\n]\n";
     green(
         spec,
@@ -74,7 +74,7 @@ fn baseline3_search_failure_both_conventions() {
 
 #[test]
 fn task1_libraries() {
-    let spec = "In: n∈N, pl∈Tpl[1..n], Tpl=(name:S x x:N x y:N)\nAux: van∈L, ind∈N\nOut: lib∈S\nPre: ∀i∈[1..n]: (pl[i].x≥0 and pl[i].y≥0)\nPost: (van,ind)=SEARCH(i=1..n-1,pl[i].y<pl[i+1].y) and\n      van → lib=pl[ind].name";
+    let spec = "In: n∈N, pl∈Tpl[1..n], Tpl=(name:S x x:N x y:N)\nAux: van∈L, ind∈N\nOut: lib∈S\nPre: ∀i∈[1..n]: (pl[i].x≥0 and pl[i].y≥0)\nPost: (van,ind)=SEARCH(i=1..n-1,pl[i].y<pl[i+1].y) and\n      van -> lib=pl[ind].name";
     green(
         spec,
         &[
@@ -87,7 +87,7 @@ fn task1_libraries() {
 
 #[test]
 fn task2_matrix_max() {
-    let spec = "In: n∈N, m∈N, map∈N[1..n,1..m]\nOut: mpx∈N, mpy∈N\nFn: maxcol: N→N x N, maxcol(i)=MAX(j=1..m,map[i,j])\nPre: ∀i∈[1..n]: (∀j∈[1..m]:(map[i,j]≥0))\nPost: (mpx,)=MAX(i=1..n,maxcol(i).maxval) and\n      mpy=maxcol(mpx).maxind";
+    let spec = "In: n∈N, m∈N, map∈N[1..n,1..m]\nOut: mpx∈N, mpy∈N\nFn: maxcol: N->N x N, maxcol(i)=MAX(j=1..m,map[i,j])\nPre: ∀i∈[1..n]: (∀j∈[1..m]:(map[i,j]≥0))\nPost: (mpx,)=MAX(i=1..n,maxcol(i).maxval) and\n      mpy=maxcol(mpx).maxind";
     green(
         spec,
         &[
@@ -99,7 +99,7 @@ fn task2_matrix_max() {
 
 #[test]
 fn task3_mis_with_sum() {
-    let spec = "In: n∈N, d∈N, tr∈N[1..n]\nOut: cnt∈N, days∈N[1..cnt]\nFn: total: N→N, total(i)=SUM(j=i-d..i-1,tr[j])\nPre: n>d>0\nPost: (cnt,days)=MIS(i=d+1..n,total(i)<tr[i],i)";
+    let spec = "In: n∈N, d∈N, tr∈N[1..n]\nOut: cnt∈N, days∈N[1..cnt]\nFn: total: N->N, total(i)=SUM(j=i-d..i-1,tr[j])\nPre: n>d>0\nPost: (cnt,days)=MIS(i=d+1..n,total(i)<tr[i],i)";
     green(
         spec,
         &[
@@ -112,7 +112,7 @@ fn task3_mis_with_sum() {
 
 #[test]
 fn task4_coffee() {
-    let spec = "In: n∈N, coffe∈N[1..n,1..4]\nAux: van∈L\nOut: ind∈N\nFn: morethan5:N→L, morethan5(i)=FORALL(j=1..4,coffe[i,j]>5)\nPre: -\nPost: (van,ind)=SEARCH(i=1..n, morethan5(i))";
+    let spec = "In: n∈N, coffe∈N[1..n,1..4]\nAux: van∈L\nOut: ind∈N\nFn: morethan5:N->L, morethan5(i)=FORALL(j=1..4,coffe[i,j]>5)\nPre: -\nPost: (van,ind)=SEARCH(i=1..n, morethan5(i))";
     green(
         spec,
         &[
@@ -137,7 +137,7 @@ fn task5_condmax_slot_skipping() {
 
 #[test]
 fn bonus1_distinct_count_yaml_records() {
-    let spec = "In: n∈N, races∈Race[1..n], Race=(name:S x time:N)\nOut: cnt∈N\nFn: nV:N→L, nV(i)=FORALL(j=1..i-1, races[i].time≠races[j].time)\nPre: -\nPost: cnt=COUNT(i=1..n, nV(i))";
+    let spec = "In: n∈N, races∈Race[1..n], Race=(name:S x time:N)\nOut: cnt∈N\nFn: nV:N->L, nV(i)=FORALL(j=1..i-1, races[i].time≠races[j].time)\nPre: -\nPost: cnt=COUNT(i=1..n, nV(i))";
     green(
         spec,
         &[
@@ -160,7 +160,7 @@ fn bonus2_mis_projection_with_comment() {
 
 #[test]
 fn bonus3_column_filter() {
-    let spec = "In: n∈N, m∈N, k∈N, lates∈N[1..n,1..m]\nOut: cnt∈N, every∈N[1..cnt]\nFn: lt:N→L, lt(j)=FORALL(i=1..n, lates[i,j]>k)\nPre: -\nPost: (cnt, every)=MIS(j=1..m,lt(j))";
+    let spec = "In: n∈N, m∈N, k∈N, lates∈N[1..n,1..m]\nOut: cnt∈N, every∈N[1..cnt]\nFn: lt:N->L, lt(j)=FORALL(i=1..n, lates[i,j]>k)\nPre: -\nPost: (cnt, every)=MIS(j=1..m,lt(j))";
     green(
         spec,
         &[
@@ -179,10 +179,11 @@ fn task6_relational_hungarian() {
             "n: 3\nar: [500, 250, 100]\ntav: [1000, 1000, 500]\nmax: 250",
             "n: 1\nar: [1]\ntav: [1]\nmax: 1",
             "n: 4\nar: [100, 100, 2000000, 1]\ntav: [20000, 20000, 20000, 20000]\nmax: 1",
-            // output omitted: the relational formula computes it
-            "n: 3\nar: [500, 250, 100]\ntav: [1000, 1000, 500]",
         ],
     );
+    // as in the online editor, a test case without the output is red
+    let msg = red(spec, "n: 3\nar: [500, 250, 100]\ntav: [1000, 1000, 500]");
+    assert!(msg.contains("Output `max` is missing"), "{msg}");
     let msg = red(
         spec,
         "n: 3\nar: [500, 250, 100]\ntav: [1000, 1000, 500]\nmax: 500",
@@ -215,10 +216,13 @@ fn task9_lookup_table() {
     green(
         spec,
         &[
-            "lapok: [\"also\", \"felso\", \"kiraly\", \"VII\", \"VIII\", \"IX\", \"X\", \"asz\"]\nertekek: [2, 3, 4, 7, 8, 9, 10, 11]\nlap: \"asz\"\nertek: 11",
+            "lap: \"asz\"\nertek: 11",
             "lap: also\nertek: 2",
         ],
     );
+    // constants get their value from the declaration; repeating it is red, as online
+    let msg = red(spec, "lapok: [\"also\", \"felso\", \"kiraly\", \"VII\", \"VIII\", \"IX\", \"X\", \"asz\"]\nlap: \"asz\"\nertek: 11");
+    assert!(msg.contains("data cannot contain item with the same name: lapok"), "{msg}");
 }
 
 #[test]
@@ -240,17 +244,17 @@ fn task10_relational_and_macro() {
         &[
             "n: 6\nk: 2000\nar: [2500, 5300, 1900, 2400, 8800, 1000]\negyeb: 0\nvan: true\nind: 3\nsorszam: 3\ndb: 2",
             "n: 3\nk: 100\nar: [2500, 5300, 1900]\negyeb: 5\nvan: false\nind: 4\nsorszam: -1\ndb: 0",
-            "n: 4\nk: 10000\nar: [1, 2, 3, 4]\negyeb: 0\nsorszam: 1\ndb: 4",
+            "n: 4\nk: 10000\nar: [1, 2, 3, 4]\negyeb: 0\nvan: true\nind: 1\nsorszam: 1\ndb: 4",
         ],
     );
 }
 
 #[test]
 fn misc_language_features() {
-    // reverse search, COPY with ABS, tuples, membership, chained comparisons, implication
+    // reverse search (mod keeps the sign of the dividend, as online: -3 mod 2 = -1), COPY with abs, tuples, membership, chained comparisons, implication
     green(
-        "In: n∈N, nums∈Z[1..n], a∈N\nAux: van∈L\nOut: ind∈N, abs∈Z[1..n]\nPre: a∈[2..7] and 2≤a≤7 and not(true → false) and (3, 5).1=3\nPost: (van,-ind)=SEARCH(i=-n..-1, nums[-i] mod 2 = 1) and abs=COPY(i=1..n, ABS(nums[i])) and a=a",
-        &["n: 4\nnums: [1, -3, 4, 6]\na: 3\nvan: true\nind: 2\nabs: [1, 3, 4, 6]"],
+        "In: n∈N, nums∈Z[1..n], a∈N\nAux: van∈L\nOut: ind∈N, abs∈Z[1..n]\nPre: a∈[2..7] and 2≤a≤7 and not(true -> false) and (3, 5).1=3\nPost: (van,-ind)=SEARCH(i=-n..-1, nums[-i] mod 2 = 1) and abs=COPY(i=1..n, abs(nums[i])) and a=a",
+        &["n: 4\nnums: [1, -3, 4, 6]\na: 3\nvan: true\nind: 1\nabs: [1, 3, 4, 6]"],
     );
     // zero-based open array + from/to + MIN
     green(
@@ -382,27 +386,19 @@ fn review_regressions() {
     let rel = "Be: n∈N, k∈N, ar∈N[1..n]\nKi: sorszam∈Z\nEf: -\nUf: (sorszam=-1 and ∀i∈[1..n]:(ar[i]>=k)) or ∃i∈[1..n]:(sorszam=i and ar[i]<k and ∀j∈[1..i-1]:(ar[j]>=k))";
     let s = parse(rel).unwrap();
     for (data, want) in [
-        ("n: 4\nk: 5000\nar: [6000, 3000, 1000, 200]", "2"),
-        ("n: 2\nk: 1\nar: [5, 6]", "-1"),
+        ("n: 4\nk: 5000\nar: [6000, 3000, 1000, 200]\nsorszam: 2", "2"),
+        ("n: 2\nk: 1\nar: [5, 6]\nsorszam: -1", "-1"),
     ] {
         let o = run_test(&s, data);
         assert!(o.pass);
         assert_eq!(o.values[0].1, want, "{data}");
     }
-    // computed value outside its declared set is reported
-    let s = parse("Be: n∈N\nKi: x∈N\nEf: -\nUf: x=n-5").unwrap();
-    let o = run_test(&s, "n: 1");
-    assert!(
-        o.notes.iter().any(|n| n.contains("negative")),
-        "{:?}",
-        o.notes
-    );
     // integer edge cases must not panic
     let s = parse("Be: a∈Z, b∈Z\nKi: x∈Z\nEf: -\nUf: x=a mod b and (b|a or true) and a=a").unwrap();
     let _ = run_test(&s, "a: -9223372036854775808\nb: -1");
     // huge ranges are refused instead of allocating gigabytes
-    let s = parse("Be: n∈N\nKi: y∈N[1..n]\nEf: -\nUf: y=COPY(i=1..n, i)").unwrap();
-    let m = render(&run_test(&s, "n: 100000000000").diags, "", "");
+    let s = parse("Be: n∈N\nKi: y∈N[]\nEf: -\nUf: y=COPY(i=1..n, i)").unwrap();
+    let m = render(&run_test(&s, "n: 100000000000\ny: []").diags, "", "");
     assert!(m.contains("too large"), "{m}");
     // `exists` used as a variable in a formula gets the reserved-word explanation
     let m = spec_err("Be: n∈N\nKi: ind∈N\nEf: -\nUf: (exists,ind)=SEARCH(i=1..n, i>2)");
@@ -428,8 +424,8 @@ fn review_regressions() {
 fn fuzz_no_panics() {
     let specs = [
         "Be:\nn∈N,\nk∈N,\nar∈N[1..n],\negyeb∈N\n\nSa:\nvan∈L,\nind∈N\n\nKi:\nsorszam∈Z,\ndb∈N\n\nFv:\nkisebb:N->L,\nkisebb(i)=ar[i]<k\n\nEf:\n1<=n<=100 and ∀i∈[1..n]:(1<=ar[i])\n\nUf:\n(van,ind)=SEARCH(i=1..n, kisebb(i)) and\n(van -> sorszam=ind) and\n(not van -> sorszam=-1) and\ndb=DARAB(i=1..n, ar[i]<k) and\negyeb=egyeb // é\n",
-        "In: n∈N, pl∈Tpl[1..n], Tpl=(name:S x x:N x y:N)\nAux: van∈L, ind∈N\nOut: lib∈S\nPre: ∀i∈[1..n]: (pl[i].x≥0)\nPost: (van,ind)=SEARCH(i=1..n-1,pl[i].y<pl[i+1].y) and van → lib=pl[ind].name /* ő */",
-        "In: n∈N, m∈N, map∈N[1..n,1..m]\nOut: mpx∈N, mpy∈N\nFn: maxcol: N→N x N, maxcol(i)=MAX(j=1..m,map[i,j])\nPre: -\nPost: (mpx,)=MAX(i=1..n,maxcol(i).maxval) and mpy=maxcol(mpx).maxind and (3,5).1=3 and \"a\"=\"a\"",
+        "In: n∈N, pl∈Tpl[1..n], Tpl=(name:S x x:N x y:N)\nAux: van∈L, ind∈N\nOut: lib∈S\nPre: ∀i∈[1..n]: (pl[i].x≥0)\nPost: (van,ind)=SEARCH(i=1..n-1,pl[i].y<pl[i+1].y) and van -> lib=pl[ind].name /* ő */",
+        "In: n∈N, m∈N, map∈N[1..n,1..m]\nOut: mpx∈N, mpy∈N\nFn: maxcol: N->N x N, maxcol(i)=MAX(j=1..m,map[i,j])\nPre: -\nPost: (mpx,)=MAX(i=1..n,maxcol(i).maxval) and mpy=maxcol(mpx).maxind and (3,5).1=3 and \"a\"=\"a\"",
     ];
     let data = [
         "n: 6\nk: 2000\nar: [2500, 5300, 1900, 2400, 8800, 1000]\negyeb: 0\nsorszam: 3\ndb: 2",
@@ -446,7 +442,7 @@ fn fuzz_no_panics() {
         "∈",
         "∀",
         "∃",
-        "→",
+        "->",
         "-",
         "\"",
         "/*",
@@ -523,7 +519,7 @@ fn fuzz_no_panics() {
 #[test]
 fn stepper_trace() {
     use speci_local::eval::StepKind;
-    let spec = "In: n∈N, c∈N[1..n,1..4]\nAux: van∈L\nOut: ind∈N\nFn: more5:N→L, more5(i)=FORALL(j=1..4,c[i,j]>5)\nPre: -\nPost: (van,ind)=SEARCH(i=1..n, more5(i))";
+    let spec = "In: n∈N, c∈N[1..n,1..4]\nAux: van∈L\nOut: ind∈N\nFn: more5:N->L, more5(i)=FORALL(j=1..4,c[i,j]>5)\nPre: -\nPost: (van,ind)=SEARCH(i=1..n, more5(i))";
     let s = parse(spec).unwrap();
     let data = "n: 3\nc: [[5, 6, 7, 4], [6, 8, 7, 9], [1, 2, 3, 4]]\nvan: true\nind: 2";
     let t = speci_local::trace_test(&s, data, &Default::default()).unwrap();
@@ -563,6 +559,43 @@ fn stepper_trace() {
     );
     // long evaluations are capped
     let s = parse("Be: n∈N\nKi: x∈N\nEf: -\nUf: x=SUM(i=1..n, i)").unwrap();
-    let t = speci_local::trace_test(&s, "n: 100000", &Default::default()).unwrap();
+    let t = speci_local::trace_test(&s, "n: 100000\nx: 5000050000", &Default::default()).unwrap();
     assert!(t.truncated && t.steps.len() == speci_local::eval::TRACE_CAP);
+}
+
+// ---------------------------------------------------------------- same verdicts as the online editor
+
+#[test]
+fn online_editor_compat() {
+    // accepted, as online
+    green("Be: n∈N\nKi: b∈L\nEf: igaz\nUf: b=(minden i eleme [1..n]:(i>0) és létezik j in [1..n]:(j=1) és nem hamis)", &["n: 2\nb: true"]);
+    green("In: a∈Z, b∈Z\nOut: c∈Z, d∈Z, e∈L, f∈N\nPre: -\nPost: c=a mod b and d=a div b and e=(a<>b and 2∤a) and f=3!", &["a: -7\nb: 2\nc: -1\nd: -4\ne: true\nf: 6"]);
+    green("In: a∈R\nOut: c∈Z, r∈R\nPre: -\nPost: c=round(a) and r=sqrt(4)+abs(a)", &["a: -2.5\nc: -2\nr: 4.5"]);
+    green("In: x∈N[0..]\nOut: c∈Z\nPre: -\nPost: c=tól(x)+ig(x)+hossz(x)", &["x: [1, 2]\nc: 3"]);
+    green("In: n∈N\nOut: s∈N\nFn: sq:N->N, sq(a)=a*a\nFv: dbl:N->N, dbl(a)=a*2\nDef: tr:N->N, tr(a)=a*3\nPre: -\nPost: s=sq(n)+dbl(n)+tr(n)", &["n: 3\ns: 24"]);
+    green("In: n∈N, x∈Z[1..n]\nOut: s∈Z, c∈N, y∈Z[]\nPre: -\nPost: s=SZUMMA(i=1..n, x[i]) and (c,y)=KIVÁLOGAT(i=1..n, x[i]>0)", &["n: 3\nx: [1, -2, 3]\ns: 2\nc: 2\ny: [1, 3]"]);
+    green("In: n∈N\nOut: c∈L, y∈N[0..]\nPre: -\nPost: c=([[1, 2], [3, 4]]=[1..,1..:[1, 2], [3, 4]]) and y=[0..:5, n]", &["n: 6\nc: true\ny: [5, 6]"]);
+    green("In: m∈Z[-1..1,-1..1]=[[2,1,2],[1,0,1],[2,1,1]], i∈Z\nOut: v∈Z\nPre: -\nPost: v=m[-1,-1]+i and m=m", &["i: 0\nv: 2"]);
+    // rejected, as online
+    for (spec, why) in [
+        ("In: n∈N\nOut: b∈L\nPre: -\nPost: b=(n>0 → n>1)", "`→`"),
+        ("In: n∈N\nOut: d∈N\nPre: n≥2\nPost: d=SELECT(i≥2, i|n)", "Expected `>=` but found `≥`"),
+        ("In: n∈N\nOut: s∈N\nFn: sq:N->N, sq(a)=a*a,\n    dbl:N->N, dbl(a)=a*2\nPre: -\nPost: s=sq(n)+dbl(n)", "Only one function per"),
+        ("In: n∈N\nOut: s∈N\nFn: d(a)=a*2\nPre: -\nPost: s=d(n)", "has no signature"),
+        ("In: a∈Z\nOut: c∈N\nPre: -\nPost: c=ABS(a)", "Unknown function `ABS`"),
+        ("In: a element N\nOut: c∈N\nPre: -\nPost: c=a", "`element`"),
+        ("In: n∈N\nOut: m∈N\nPre: m>0\nPost: m=n*2", "Output `m` is used in the precondition"),
+        ("In: n∈N\nOut: s∈N, t∈N\nPre: -\nPost: s=n", "Output `t` is never used"),
+        ("In: a∈L, b∈L\nOut: c∈L\nPre: -\nPost: c=(a ∧ b)", "`∧`"),
+    ] {
+        let m = spec_err(spec);
+        assert!(m.contains(why), "{spec}\n{m}");
+    }
+    // test data judged as online
+    let m = red("In: n∈N, x∈Z[1..n]\nAux: f∈L, ind∈N\nOut: r∈Z\nPre: -\nPost: (f,ind)=SEARCH(i=1..n, x[i]<0) and (f -> r=ind) and (not f -> r=-1)", "n: 1\nx: [5]\nf: false\nr: -1");
+    assert!(m.contains("`ind` is missing"), "{m}");
+    let m = red("In: d∈N[1..3]=[1,2,3], m∈[1..3]\nOut: x∈N\nPre: -\nPost: x=d[m]", "d: [1,2,3]\nm: 2\nx: 2");
+    assert!(m.contains("data cannot contain item with the same name: d"), "{m}");
+    let m = red("In: n∈N\nOut: c∈L\nPre: -\nPost: c=([0..:5, 6]=[5, 6]) and n=n", "n: 1\nc: false");
+    assert!(m.contains("same index range"), "{m}");
 }

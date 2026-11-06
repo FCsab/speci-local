@@ -334,12 +334,18 @@ impl<'a> Eval<'a> {
                 }
                 Value::Tuple(v, &[])
             }
-            ExprKind::Array(items) => {
+            ExprKind::Array(items, from) => {
                 let mut v = Vec::new();
                 for x in items {
                     v.push(self.eval(x, env)?);
                 }
-                Value::Arr { from: 1, items: v }
+                let mut arr = Value::Arr { from: 1, items: v };
+                let mut starts = Vec::new();
+                for f in from {
+                    starts.push(self.int(f, env, "The start index")?);
+                }
+                set_from(&mut arr, &starts);
+                arr
             }
             ExprKind::Neg(a) => match self.eval(a, env)? {
                 Value::Int(i) => Value::Int(
@@ -556,7 +562,7 @@ impl<'a> Eval<'a> {
                 .explain("The result does not fit in a 64-bit whole number.")
         };
         Ok(match (op, &x, &y) {
-            (BinOp::Div | BinOp::Mod, _, _) if y.num() == 0.0 => {
+            (BinOp::Div | BinOp::Mod | BinOp::IDiv, _, _) if y.num() == 0.0 => {
                 return Err(self
                     .err(e, format!("Division by zero in `{}`", self.t(e)))
                     .explain(format!("`{}` is 0 here.", self.t(b))));
@@ -564,7 +570,14 @@ impl<'a> Eval<'a> {
             (BinOp::Add, Int(p), Int(q)) => Int(p.checked_add(*q).ok_or_else(overflow)?),
             (BinOp::Sub, Int(p), Int(q)) => Int(p.checked_sub(*q).ok_or_else(overflow)?),
             (BinOp::Mul, Int(p), Int(q)) => Int(p.checked_mul(*q).ok_or_else(overflow)?),
-            (BinOp::Mod, Int(p), Int(q)) => Int(p.checked_rem_euclid(*q).ok_or_else(overflow)?),
+            // like the online editor (JavaScript `%`): the sign follows the dividend, -7 mod 2 = -1
+            (BinOp::Mod, Int(p), Int(q)) => Int(p.checked_rem(*q).ok_or_else(overflow)?),
+            (BinOp::IDiv, Int(p), Int(q)) => {
+                // rounded down, like Math.floor(p / q): -7 div 2 = -4
+                let d = p.checked_div(*q).ok_or_else(overflow)?;
+                Int(if p % q != 0 && (*p < 0) != (*q < 0) { d - 1 } else { d })
+            }
+            (BinOp::IDiv, ..) => Int((x.num() / y.num()).floor() as i64),
             (BinOp::Div, Int(p), Int(q)) if p.checked_rem(*q) == Some(0) => {
                 Int(p.checked_div(*q).ok_or_else(overflow)?)
             }
@@ -572,15 +585,22 @@ impl<'a> Eval<'a> {
             (BinOp::Sub, ..) => Real(x.num() - y.num()),
             (BinOp::Mul, ..) => Real(x.num() * y.num()),
             (BinOp::Div, ..) => Real(x.num() / y.num()),
-            (BinOp::Mod, ..) => Real(x.num().rem_euclid(y.num())),
+            (BinOp::Mod, ..) => Real(x.num() % y.num()),
             _ => unreachable!(),
         })
     }
 
     fn compare(&self, e: &Expr, op: &str, a: &Expr, b: &Expr, x: &Value, y: &Value) -> R<bool> {
         match op {
-            "=" => return Ok(x.eq_val(y)),
-            "!=" => return Ok(!x.eq_val(y)),
+            "=" => {
+                self.same_range(e, x, y)?;
+                return Ok(x.eq_val(y));
+            }
+            "!=" => {
+                self.same_range(e, x, y)?;
+                return Ok(!x.eq_val(y));
+            }
+            "∤" => return self.compare(e, "|", a, b, x, y).map(|d| !d),
             "|" => {
                 return match (x, y) {
                     (Value::Int(p), Value::Int(q)) => Ok(if *p == 0 {
@@ -666,7 +686,26 @@ impl<'a> Eval<'a> {
         }
         let a = self.eval(l, env)?;
         let b = self.eval(r, env)?;
+        self.same_range(l, &a, &b)?;
         Ok(a.eq_val(&b))
+    }
+
+    /// The online editor refuses to compare arrays whose index ranges differ.
+    fn same_range(&self, e: &Expr, a: &Value, b: &Value) -> R<()> {
+        if let (Value::Arr { from: f, items: x }, Value::Arr { from: g, items: y }) = (a, b)
+            && (f != g || x.len() != y.len())
+            && !x.is_empty()
+            && !y.is_empty()
+        {
+            return Err(self
+                .err(e, "The two arrays don't have the same index range")
+                .explain(format!(
+                    "One is indexed {f}..{}, the other {g}..{}. Arrays are only equal if their index ranges match.",
+                    f + x.len() as i64 - 1,
+                    g + y.len() as i64 - 1
+                )));
+        }
+        Ok(())
     }
 
     fn bind(&mut self, target: &Expr, v: Value, env: &mut Env, source: &Expr) -> R<bool> {
@@ -794,25 +833,40 @@ impl<'a> Eval<'a> {
             }
         };
         match name {
-            "length" => return Ok(Value::Int(need_arr(self, &vals[0])?.1)),
-            "from" => return Ok(Value::Int(need_arr(self, &vals[0])?.0)),
-            "to" => {
+            "length" | "hossz" => return Ok(Value::Int(need_arr(self, &vals[0])?.1)),
+            "from" | "tól" => return Ok(Value::Int(need_arr(self, &vals[0])?.0)),
+            "to" | "ig" => {
                 let (f, l) = need_arr(self, &vals[0])?;
                 return Ok(Value::Int(f + l - 1));
             }
-            "ABS" | "abs" => {
-                return match &vals[0] {
-                    Value::Int(i) => Ok(Value::Int(i.abs())),
-                    Value::Real(r) => Ok(Value::Real(r.abs())),
-                    v => Err(self.err(
+            "abs" | "sqrt" | "round" | "kerekít" | "!" => {
+                let v = &vals[0];
+                if !v.is_num() {
+                    let what = if name == "!" { "`!` (factorial)" } else { name };
+                    return Err(self.err(
                         e,
-                        format!(
-                            "ABS needs a number, but `{}` is {}",
-                            self.t(&args[0]),
-                            v.kind()
-                        ),
-                    )),
-                };
+                        format!("{what} needs a number, but `{}` is {}", self.t(&args[0]), v.kind()),
+                    ));
+                }
+                return Ok(match (name, v) {
+                    ("abs", Value::Int(i)) => Value::Int(i.abs()),
+                    ("abs", _) => Value::Real(v.num().abs()),
+                    ("sqrt", _) => Value::Real(v.num().sqrt()),
+                    // JavaScript Math.round: halves go up, round(-2.5) = -2
+                    (_, Value::Int(i)) if name != "!" => Value::Int(*i),
+                    ("!", _) => {
+                        let n = v.num();
+                        if n < 0.0 || n.fract() != 0.0 {
+                            return Err(self.err(e, format!("`{}`: the factorial needs a whole number ≥ 0", self.t(e))));
+                        }
+                        let mut acc: i64 = 1;
+                        for k in 2..=(n as i64) {
+                            acc = acc.checked_mul(k).ok_or_else(|| self.err(e, "Number overflow"))?;
+                        }
+                        Value::Int(acc)
+                    }
+                    _ => Value::Int((v.num() + 0.5).floor() as i64),
+                });
             }
             _ => {}
         }
@@ -1042,6 +1096,16 @@ fn restore(env: &mut Env, name: &str, old: Option<Value>) {
         }
         None => {
             env.remove(name);
+        }
+    }
+}
+
+/// Give an array (and its nested rows) the start indexes `starts`, outermost first.
+pub fn set_from(v: &mut Value, starts: &[i64]) {
+    if let (Value::Arr { from, items }, Some((&f, rest))) = (v, starts.split_first()) {
+        *from = f;
+        for it in items {
+            set_from(it, rest);
         }
     }
 }
