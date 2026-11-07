@@ -41,7 +41,7 @@ Ready-made builds are attached to the [GitHub releases](https://github.com/FCsab
 - macOS (`speci-local-macos-universal.zip`): unzip and move `speci-local.app` to Applications. The app isn't notarized by Apple, so the first start is blocked. Allow it in *System Settings → Privacy & Security → Open Anyway*, or run `xattr -dr com.apple.quarantine /Applications/speci-local.app`.
 - Android (`speci-local-android.apk`): open it on the phone and allow installing from that source.
 
-To publish a new release, push a version tag (`git tag v0.3.0 && git push origin v0.3.0`) or press *Run workflow* on the Release workflow.
+To publish a new release, raise `version` in `Cargo.toml` (CI alone never publishes anything), then press *Run workflow* on the Release workflow, or push a matching tag (`git tag v0.4.0 && git push origin v0.4.0`).
 It builds every platform, runs the tests, and attaches the files.
 For APKs that update in place, add the repository secrets `ANDROID_KEYSTORE` (the base64 of a `.jks` file) and `ANDROID_KEYSTORE_PASSWORD`.
 Without them, each release is signed with a new throwaway key, so you must uninstall the old version before installing a new one.
