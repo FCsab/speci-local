@@ -1,8 +1,11 @@
+pub mod app;
 pub mod data;
 pub mod diag;
 pub mod eval;
 pub mod file;
 pub mod parser;
+pub mod platform;
+mod editor;
 
 use diag::Diagnostic;
 use eval::{Env, Eval, Value};

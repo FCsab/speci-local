@@ -1,6 +1,6 @@
 name: Release
 
-# Builds the Linux and Windows binaries and publishes them on the Releases tab.
+# Builds the Linux, Windows, macOS and Android apps and publishes them on the Releases tab.
 # Either push a tag like `v0.3.0`, or press "Run workflow": that releases the
 # version in Cargo.toml as tag `v<version>` (the tag is created if it doesn't exist).
 on:
@@ -22,6 +22,9 @@ jobs:
             archive: speci-local-linux-x86_64.tar.gz
           - os: windows-latest
             archive: speci-local-windows-x86_64.zip
+          # one universal app for Apple Silicon and Intel Macs
+          - os: macos-latest
+            archive: speci-local-macos-universal.zip
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -29,7 +32,8 @@ jobs:
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libgtk-3-dev
       - run: cargo test --release --locked
-      - run: cargo build --release --locked
+      - if: runner.os != 'macOS'
+        run: cargo build --release --locked
       - name: Package (Linux)
         if: runner.os == 'Linux'
         run: tar -czf ${{ matrix.archive }} -C target/release speci-local -C ../.. README.md
@@ -37,13 +41,55 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: Compress-Archive -Path target/release/speci-local.exe, README.md -DestinationPath ${{ matrix.archive }}
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: scripts/bundle-macos.sh
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.archive }}
           path: ${{ matrix.archive }}
 
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - run: cargo install cargo-apk --locked
+      # Sign with the key from the ANDROID_KEYSTORE (base64 of a .jks file) and
+      # ANDROID_KEYSTORE_PASSWORD secrets. Without them a throwaway key is made, and
+      # phones then can't update an earlier install in place (uninstall it first).
+      - name: Signing key
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+          PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          ks="$RUNNER_TEMP/release.jks"
+          if [ -n "$KEYSTORE" ]; then
+            echo "$KEYSTORE" | base64 -d > "$ks"
+          else
+            echo "::warning::No ANDROID_KEYSTORE secret: signing the APK with a throwaway key"
+            PASSWORD=$(openssl rand -hex 16)
+            echo "::add-mask::$PASSWORD"
+            keytool -genkeypair -keystore "$ks" -storepass "$PASSWORD" -keypass "$PASSWORD" \
+              -alias speci-local -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=speci-local"
+          fi
+          echo "CARGO_APK_RELEASE_KEYSTORE=$ks" >> "$GITHUB_ENV"
+          echo "CARGO_APK_RELEASE_KEYSTORE_PASSWORD=$PASSWORD" >> "$GITHUB_ENV"
+      - name: Build APK
+        env:
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_NDK_LATEST_HOME }}
+        run: |
+          cargo apk build -p speci-local-android --release
+          cp target/release/apk/speci-local.apk speci-local-android.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: speci-local-android.apk
+          path: speci-local-android.apk
+
   release:
-    needs: build
+    needs: [build, android]
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:

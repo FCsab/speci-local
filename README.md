@@ -1,7 +1,7 @@
 # speci-local
 
 An offline replacement for the ELTE Specification Editor (progalap.elte.hu/specifikacio), for when the university login is down.
-It's a single native binary for Linux and Windows.
+It runs natively on Windows, Linux, macOS and Android, from one Rust code base ([egui](https://github.com/emilk/egui)).
 
 You write a specification (`Be:/Sa:/Ki:/Fv:/Ef:/Uf:` or `In:/Aux:/Out:/Fn:/Pre:/Post:`) and add YAML test cases.
 Everything is re-evaluated automatically as you type, in the background, and each test tab turns green or red.
@@ -15,13 +15,47 @@ cargo run --release
 
 On Linux, the first start installs a desktop entry (`~/.local/share/applications/speci-local.desktop`) and an icon (`~/.local/share/icons/hicolor/256x256/apps/speci-local.png`). Wayland window managers need these to show the app's icon, and they also put speci-local in your application menu. Delete those two files to remove it again.
 
-Linux needs the usual windowing libraries (X11/Wayland, `libxkbcommon`), and the Open/Save dialogs need `xdg-desktop-portal` (standard on GNOME and KDE). Windows needs no extra setup.
+Linux needs the usual windowing libraries (X11/Wayland, `libxkbcommon`), and the Open/Save dialogs need `xdg-desktop-portal` (standard on GNOME and KDE). Windows and macOS need no extra setup.
+
+On macOS, `scripts/bundle-macos.sh` builds `speci-local.app` (a universal binary for Apple Silicon and Intel) and zips it.
+
+### Android
+
+The Android app is the `android/` crate, a thin wrapper around the same library, built with [cargo-apk](https://github.com/rust-mobile/cargo-apk):
+
+```sh
+rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+cargo install cargo-apk
+export ANDROID_HOME=~/Android/Sdk ANDROID_NDK_ROOT=~/Android/Sdk/ndk/<version>
+cargo apk run -p speci-local-android      # debug build, installed on the connected phone
+```
+
+Add `--target x86_64-linux-android` to build only for the emulator. The app logs to logcat (`adb logcat -s speci-local`).
+`cargo apk build -p speci-local-android --release` needs a signing key: set `CARGO_APK_RELEASE_KEYSTORE` (a `.jks` file) and `CARGO_APK_RELEASE_KEYSTORE_PASSWORD`.
 
 ## Downloads
 
-Ready-made Linux and Windows binaries are attached to the [GitHub releases](https://github.com/FCsab/speci-local/releases).
-To publish a new release, push a version tag: `git tag v0.2.0 && git push origin v0.2.0`.
-The Release workflow then builds both platforms, runs the tests, and attaches the archives.
+Ready-made builds are attached to the [GitHub releases](https://github.com/FCsab/speci-local/releases):
+
+- Linux (`.tar.gz`) and Windows (`.zip`): a single executable.
+- macOS (`speci-local-macos-universal.zip`): unzip and move `speci-local.app` to Applications. The app isn't notarized by Apple, so the first start is blocked. Allow it in *System Settings → Privacy & Security → Open Anyway*, or run `xattr -dr com.apple.quarantine /Applications/speci-local.app`.
+- Android (`speci-local-android.apk`): open it on the phone and allow installing from that source.
+
+To publish a new release, push a version tag (`git tag v0.3.0 && git push origin v0.3.0`) or press *Run workflow* on the Release workflow.
+It builds every platform, runs the tests, and attaches the files.
+For APKs that update in place, add the repository secrets `ANDROID_KEYSTORE` (the base64 of a `.jks` file) and `ANDROID_KEYSTORE_PASSWORD`.
+Without them, each release is signed with a new throwaway key, so you must uninstall the old version before installing a new one.
+
+## On phones
+
+On a narrow screen (a phone, or a narrow window on the desktop), one pane is shown at a time, and the **Spec / Tests / Results** tabs switch between them.
+The settings menu holds *Save as…* and the theme.
+
+Android has no file dialogs. **Open** and **Save** show a list of the specifications in the app's folder (`Android/data/io.github.fcsab.specilocal/files/specifications`, which a computer sees over USB).
+To move a project between devices, use the copy / paste project buttons. They work with the Android clipboard, so the `SPECI1:…` line can be sent through any chat app.
+The paste button next to the symbol buttons pastes the clipboard at the cursor.
+
+The on-screen keyboard types plain letters, digits and punctuation. Use the symbol buttons for ∈ ∀ ∃ ≠ ≤ ≥, or type `forall`, `exists`, `leq` and let completion turn them into symbols.
 
 ## What it does
 
@@ -41,12 +75,12 @@ The Release workflow then builds both platforms, runs the tests, and attaches th
 - **Copy / paste a whole project.** The copy button (Ctrl+Shift+C) puts the spec and all test cases on the clipboard as one compact line (`SPECI1:…`, compressed). It's handy for sending through chat.
   - The paste button (Ctrl+Shift+V) turns that line, or plain specification text, back into the project.
   - If the system clipboard can't be read, a box opens where you can paste with Ctrl+V instead.
-- Special characters: the symbol buttons or **Alt+1 … Alt+6** for ∈ ∀ ∃ ≠ ≤ ≥ (in that order).
+- Special characters: the symbol buttons or **Alt+1 … Alt+6** (**⌥1 … ⌥6** on macOS) for ∈ ∀ ∃ ≠ ≤ ≥ (in that order).
 - Light, dark or system theme, and an adjustable font size.
 
 ## `.sp` files
 
-Save with Ctrl+S (Ctrl+Shift+S for Save as) and open with Ctrl+O. You can also drag a file onto the window, or run `speci-local file.sp`; the file is evaluated as soon as it opens.
+Save with Ctrl+S (Ctrl+Shift+S for Save as) and open with Ctrl+O (⌘ instead of Ctrl on macOS). You can also drag a file onto the window, or run `speci-local file.sp`; the file is evaluated as soon as it opens.
 A `.sp` file is plain text: the specification, with each test case stored as a comment:
 
 ```text

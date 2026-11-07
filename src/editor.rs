@@ -4,7 +4,7 @@ use eframe::egui::{
     self, Color32, FontId, Id, Key, Modifiers, RichText, TextEdit, TextFormat, text::CCursor,
     text::CCursorRange, text::LayoutJob,
 };
-use speci_local::parser::MACROS;
+use crate::parser::MACROS;
 
 // ---------------------------------------------------------------- colors
 
@@ -566,10 +566,10 @@ pub fn code_editor(
                 .find(|(k, _)| i.consume_key(Modifiers::ALT, *k))
                 .map(|(_, s)| *s);
             if hit.is_some() {
-                // some platforms also send the digit as typed text
-                i.events.retain(
-                    |e| !matches!(e, egui::Event::Text(t) if t.chars().all(|c| c.is_ascii_digit())),
-                );
+                // some platforms also send the key as typed text: the digit, or on macOS
+                // the Option-layer character (Option+1 is ¡)
+                i.events
+                    .retain(|e| !matches!(e, egui::Event::Text(t) if t.chars().count() == 1));
             }
             hit
         });
@@ -785,7 +785,7 @@ mod tests {
         let id = Id::unique("t-editor");
         let symbols = scan_symbols("Be: szamok∈N[1..n], n∈N\nFv: kisebb:N->L, kisebb(i)=i<3");
         Harness::builder()
-            .with_context_setup(crate::fonts)
+            .with_context_setup(crate::app::fonts)
             .build_ui_state(
                 move |ui, s: &mut S| {
                     if s.first {

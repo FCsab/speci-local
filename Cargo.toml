@@ -1,18 +1,46 @@
-[package]
-name = "speci-local"
+[workspace]
+members = ["android"] # the root package is a member too
+# `cargo build` / `cargo test` at the top level only build the desktop app
+default-members = ["."]
+
+# the one version number for every platform (the release workflow reads it from here)
+[workspace.package]
 version = "0.3.0"
 edition = "2024"
 
+[package]
+name = "speci-local"
+version.workspace = true
+edition.workspace = true
+
 [dependencies]
-arboard = "3"
-eframe = { version = "0.37.0", features = ["persistence"] }
+# Android (NativeActivity) can't have eframe's default `accesskit` feature,
+# so the defaults are only switched on for the desktop systems below.
+eframe = { version = "0.37.0", default-features = false, features = [
+    "clipboard",
+    "default_fonts",
+    "links",
+    "persistence",
+    "wgpu",
+] }
 miniz_oxide = "0.8"
-rfd = "0.17.2"
 serde = { version = "1.0.229", features = ["derive"] }
 yaml-rust2 = "0.13.0"
 
+# Windows, Linux, macOS: eframe's default features, native file dialogs and clipboard
+[target.'cfg(not(target_os = "android"))'.dependencies]
+eframe = "0.37.0"
+arboard = "3"
+rfd = "0.17.2"
+
+# Android: the system clipboard through JNI
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.22"
+ndk-context = "0.1"
+winit = { version = "0.30", default-features = false, features = ["android-native-activity"] }
+
 [dev-dependencies]
-egui_kittest = "0.37"
+egui_kittest = { version = "0.37", features = ["eframe"] }
 
 [profile.release]
 strip = true
