@@ -40,25 +40,61 @@ pub fn paste() -> Option<String> {
     }
 }
 
-/// Native "Open" dialog for `.sp` files. Android has none: the app lists [`documents_dir`] itself.
+/// The kinds of files the app reads and writes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FileKind {
+    /// `.sp` specification with test cases
+    Spec,
+    /// `.st` structogram (Stuki)
+    Stuki,
+    Png,
+}
+
+impl FileKind {
+    pub fn ext(self) -> &'static str {
+        match self {
+            FileKind::Spec => "sp",
+            FileKind::Stuki => "st",
+            FileKind::Png => "png",
+        }
+    }
+
+    #[cfg(not(target_os = "android"))]
+    fn filter(self) -> &'static str {
+        match self {
+            FileKind::Spec => "Specification (*.sp)",
+            FileKind::Stuki => "Structogram (*.st)",
+            FileKind::Png => "PNG image (*.png)",
+        }
+    }
+}
+
+/// Native "Open" dialog, `kind` first (the other project kind can be opened too).
+/// Android has none: the app lists [`documents_dir`] itself.
 #[cfg(not(target_os = "android"))]
-pub fn pick_open() -> Option<PathBuf> {
+pub fn pick_open(kind: FileKind) -> Option<PathBuf> {
+    let other = if kind == FileKind::Spec {
+        FileKind::Stuki
+    } else {
+        FileKind::Spec
+    };
     rfd::FileDialog::new()
-        .add_filter("Specification (*.sp)", &["sp"])
+        .add_filter(kind.filter(), &[kind.ext()])
+        .add_filter(other.filter(), &[other.ext()])
         .add_filter("All files", &["*"])
         .pick_file()
 }
 
 /// Native "Save as" dialog.
 #[cfg(not(target_os = "android"))]
-pub fn pick_save(name: &str) -> Option<PathBuf> {
+pub fn pick_save(name: &str, kind: FileKind) -> Option<PathBuf> {
     rfd::FileDialog::new()
-        .add_filter("Specification (*.sp)", &["sp"])
-        .set_file_name(format!("{name}.sp"))
+        .add_filter(kind.filter(), &[kind.ext()])
+        .set_file_name(format!("{name}.{}", kind.ext()))
         .save_file()
 }
 
-/// Where `.sp` files live on Android (the app's own folder in shared storage, which a computer
+/// Where `.sp` and `.st` files live on Android (the app's own folder in shared storage, which a computer
 /// connected over USB sees as `Android/data/<package>/files`).
 pub fn documents_dir() -> Option<PathBuf> {
     #[cfg(target_os = "android")]

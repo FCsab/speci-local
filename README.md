@@ -7,6 +7,8 @@ You write a specification (`Be:/Sa:/Ki:/Fv:/Ef:/Uf:` or `In:/Aux:/Out:/Fn:/Pre:/
 Everything is re-evaluated automatically as you type, in the background, and each test tab turns green or red.
 Untick **Auto** if you'd rather evaluate manually with **Evaluate** (Ctrl+Enter).
 
+The **Stuki** tab is an offline version of the ELTE structogram editor ([progalap.elte.hu/stuki](https://progalap.elte.hu/stuki/)): see [Stuki (structograms)](#stuki-structograms).
+
 ## Build & run
 
 ```sh
@@ -97,6 +99,25 @@ db: 3
 ```
 
 Because the test cases are comments, the whole file is still a valid specification. You can paste it into the ELTE editor as-is. Your session is also autosaved when you quit.
+
+## Stuki (structograms)
+
+Switch between the two editors with the **Specification** / **Stuki** tabs in the toolbar. Each tab keeps its own file, and New, Open, Save, Copy and Paste (and their shortcuts) work on the tab you're in.
+
+- **Elements**: drag a statement, decision, pre-test loop, post-test loop or multi-way decision onto a structogram. Drop it on the upper or lower half of an element to put it before or after that element, or onto an empty statement `-` to replace it. To put it after a loop or decision, drop it on the bottom edge of the loop or decision (a line marks the spot), or just below the structogram if it's the last element. Click an element to select it; the ↑ / ↓ buttons insert above or below the selected element.
+- Texts are edited in place. Move an element by dragging its empty area or the handle in its corner, and delete it with the red ✕ or by dropping it outside the structograms (Delete also removes the selected element).
+- Hovering a multi-way decision shows **+C** / **+D** (add a case / the default case). Hovering a structogram shows **✕ F V R**: delete it, show the function header, the local declarations and the return value. The green **+** adds another structogram.
+- **Colors**: text color and text background for the selected part of a text (or all of it), element background and structogram background, from editable palettes saved with the project. **Colorize** colors the elements by kind.
+- The sliders button holds the font and the web app's advanced settings: horizontal / vertical distances (linked or not), snapping, block height, spacing, border width and right padding. Zoom with the slider, Ctrl+wheel or a pinch.
+- **Copying gives a picture**, ready to paste into a task, document or chat: the toolbar's copy button, **Copy image** or Ctrl+C (outside a text field) copy the selected structogram (the first one if none is selected) as a PNG. To copy a particular structogram, use the picture button in the bar above it or right-click it. **Export PNG** saves the picture as a file. Pictures are always light (white background, black lines), even in dark mode; turn off *Light pictures* in the settings to get what's on screen instead. On Android, copying saves the picture into the app's folder, because Android's clipboard can't hold pictures from apps like this one.
+- **Undo / redo** with the buttons or Ctrl+Z / Ctrl+Y.
+- **Copy / paste a whole project** like on the Specification tab: **Copy as text**, Ctrl+Shift+C or Shift-clicking the copy button copies one `STUKI1:…` line. Paste also accepts a `.st` file's text and the web app's share links (`…/stuki/v1/?data=…`). Paste picks the right tab on its own: a `SPECI1:` line opens on the Specification tab and a `STUKI1:` line on the Stuki tab.
+
+### `.st` files
+
+A `.st` file is the web app's own state as JSON (the `nodes` and `structograms` it keeps, plus the color palettes), so the same data moves between the two. Colored text is kept as the HTML the web app uses (`<span style="color: rgb(255, 0, 0);">…</span>`). Open `.st` files like `.sp` files: Ctrl+O, dragging them onto the window, or `speci-local file.st`.
+
+Not included from the web app: the INF login, saving to the university server, and fonts other than the bundled one (monospace or proportional).
 
 ## Not included
 

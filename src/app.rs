@@ -10,6 +10,7 @@ use crate::diag::{Diagnostic, Pane};
 use crate::eval::{StepKind, Trace};
 use crate::file::{Doc, from_clipboard, from_sp, to_compact, to_sp};
 use crate::platform;
+use crate::stuki::{self, Stuki};
 use crate::{Outcome, parse, run_test_with, scaffold, trace_test};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -41,6 +42,7 @@ const I_LAST: &str = "\u{f050}";
 const I_SYSTEM: &str = "\u{f0379}";
 const I_DARK: &str = "\u{f0594}";
 const I_LIGHT: &str = "\u{f0599}";
+const I_STUKI: &str = "\u{f0e8}";
 const STEP_BG: Color32 = Color32::from_rgb(250, 204, 21);
 
 const GREEN: Color32 = Color32::from_rgb(46, 160, 67);
@@ -72,6 +74,16 @@ enum Tab {
     Eval,
 }
 
+/// The two editors, each in its own tab.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Default, Debug)]
+pub enum Tool {
+    /// Specifications and their test cases.
+    #[default]
+    Spec,
+    /// Structograms.
+    Stuki,
+}
+
 /// Toolbar actions on the current file.
 #[derive(Clone, Copy)]
 enum Act {
@@ -86,6 +98,8 @@ enum Act {
 #[cfg(target_os = "android")]
 struct FileDialog {
     save: bool,
+    /// `sp` (specification) or `st` (structogram)
+    ext: &'static str,
     /// file name being saved as (without `.sp`)
     name: String,
     dir: Option<PathBuf>,
@@ -96,7 +110,7 @@ struct FileDialog {
 
 #[cfg(target_os = "android")]
 impl FileDialog {
-    fn new(save: bool, name: String) -> Self {
+    fn new(save: bool, name: String, ext: &'static str) -> Self {
         let dir = platform::documents_dir();
         let mut files: Vec<PathBuf> = dir
             .as_ref()
@@ -105,10 +119,10 @@ impl FileDialog {
             .flatten()
             .flatten()
             .map(|e| e.path())
-            .filter(|p| p.extension().is_some_and(|e| e == "sp"))
+            .filter(|p| p.extension().is_some_and(|e| e == ext))
             .collect();
         files.sort();
-        FileDialog { save, name, dir, files, then: None }
+        FileDialog { save, ext, name, dir, files, then: None }
     }
 }
 
@@ -165,6 +179,9 @@ struct App {
     auto: bool,
     view: View,
     tab: Tab,
+    /// The editor shown: specifications or structograms.
+    tool: Tool,
+    stuki: Stuki,
     /// Only one pane fits on screen (phones): `tab` picks it.
     #[serde(skip)]
     narrow: bool,
@@ -226,6 +243,8 @@ impl Default for App {
             auto: true,
             view: View::Results,
             tab: Tab::Spec,
+            tool: Tool::Spec,
+            stuki: Stuki::default(),
             narrow: false,
             #[cfg(target_os = "android")]
             files: None,
@@ -428,12 +447,12 @@ impl App {
             Replace::New => self.new_doc(),
             Replace::Open => {
                 #[cfg(not(target_os = "android"))]
-                if let Some(p) = platform::pick_open() {
+                if let Some(p) = platform::pick_open(platform::FileKind::Spec) {
                     self.load(&p);
                 }
                 #[cfg(target_os = "android")]
                 {
-                    self.files = Some(FileDialog::new(false, String::new()));
+                    self.files = Some(FileDialog::new(false, String::new(), "sp"));
                 }
             }
             Replace::Load(p) => self.load(&p),
@@ -441,6 +460,8 @@ impl App {
                 let font = self.font;
                 *self = App {
                     font,
+                    tool: self.tool,
+                    stuki: std::mem::take(&mut self.stuki),
                     auto: self.auto,
                     view: self.view,
                     show_s: self.show_s,
@@ -578,6 +599,15 @@ impl App {
     }
 
     fn load(&mut self, path: &Path) {
+        if path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("st"))
+        {
+            self.tool = Tool::Stuki;
+            self.stuki.request(stuki::Pending::Load(path.to_path_buf()));
+            return;
+        }
+        self.tool = Tool::Spec;
         match std::fs::read_to_string(path) {
             Ok(text) => {
                 let mut doc = from_sp(&text);
@@ -616,11 +646,11 @@ impl App {
                     .collect();
                 #[cfg(not(target_os = "android"))]
                 {
-                    platform::pick_save(&name)
+                    platform::pick_save(&name, platform::FileKind::Spec)
                 }
                 #[cfg(target_os = "android")]
                 {
-                    self.files = Some(FileDialog::new(true, name));
+                    self.files = Some(FileDialog::new(true, name, "sp"));
                     None
                 }
             }
@@ -652,6 +682,8 @@ impl App {
         };
         *self = App {
             font: self.font,
+            tool: self.tool,
+            stuki: std::mem::take(&mut self.stuki),
             auto: self.auto,
             show_s: self.show_s,
             show_d: self.show_d,
@@ -717,6 +749,21 @@ impl App {
     // ---------------------------------------------------------------- panes
 
     fn act(&mut self, act: Act, ui: &egui::Ui) {
+        if self.tool == Tool::Stuki {
+            match act {
+                Act::New => self.stuki.request(stuki::Pending::New),
+                Act::Open => self.stuki.request(stuki::Pending::Open),
+                // a picture to paste into documents; Shift-click: the project as a text line
+                Act::Copy if ui.input(|i| i.modifiers.shift) => self.stuki.copy_project(ui.ctx()),
+                Act::Copy => self.stuki.copy_image(ui.ctx(), None),
+                Act::Paste => self.paste_project(),
+                Act::Save => {
+                    let shift = ui.input(|i| i.modifiers.shift);
+                    self.stuki.save(shift);
+                }
+            }
+            return;
+        }
         match act {
             Act::New => self.replace_doc(Replace::New),
             Act::Open => self.replace_doc(Replace::Open),
@@ -741,14 +788,25 @@ impl App {
                 ui.separator();
             }
             for &act in group {
+                let stuki = self.tool == Tool::Stuki;
                 let (icon, tip) = match act {
+                    Act::New if stuki => (I_NEW, "New structogram (Ctrl+N)"),
+                    Act::Open if stuki => (I_OPEN, "Open a .st file (Ctrl+O)"),
                     Act::New => (I_NEW, "New specification (Ctrl+N)"),
                     Act::Open => (I_OPEN, "Open a .sp file (Ctrl+O)"),
+                    Act::Copy if stuki => (
+                        I_COPY,
+                        "Copy the selected structogram as a picture (Ctrl+C)\nShift-click: copy the whole project as one text line (Ctrl+Shift+C)",
+                    ),
                     Act::Copy => (
                         I_COPY,
                         "Copy the whole project to the clipboard as one compact line (Ctrl+Shift+C)",
                     ),
                     Act::Paste => (I_PASTE, "Read a project from the clipboard (Ctrl+Shift+V)"),
+                    Act::Save if stuki => (
+                        I_SAVE,
+                        "Save as .st (Ctrl+S)\nShift-click: Save as… (Ctrl+Shift+S)",
+                    ),
                     Act::Save => (
                         I_SAVE,
                         "Save (Ctrl+S)\nShift-click: Save as… (Ctrl+Shift+S)",
@@ -764,7 +822,11 @@ impl App {
     fn settings_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button(I_GEAR, |ui| {
             if ui.button(format!("{I_SAVE}  Save as…")).clicked() {
-                self.save(true);
+                if self.tool == Tool::Stuki {
+                    self.stuki.save(true);
+                } else {
+                    self.save(true);
+                }
                 ui.close();
             }
             ui.separator();
@@ -780,8 +842,26 @@ impl App {
         .on_hover_text("Settings");
     }
 
+    /// Specification / Stuki tabs.
+    fn tool_tabs(&mut self, ui: &mut egui::Ui) {
+        let short = self.narrow;
+        ui.selectable_value(
+            &mut self.tool,
+            Tool::Spec,
+            if short {
+                format!("{I_SPEC} Spec")
+            } else {
+                format!("{I_SPEC}  Specification")
+            },
+        )
+        .on_hover_text("Specification editor with test cases (.sp)");
+        ui.selectable_value(&mut self.tool, Tool::Stuki, format!("{I_STUKI}  Stuki"))
+            .on_hover_text("Structogram editor (.st)");
+    }
+
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         let narrow = self.narrow;
+        let stuki = self.tool == Tool::Stuki;
         ui.horizontal(|ui| {
             ui.label(
                 RichText::new("speci")
@@ -791,48 +871,80 @@ impl App {
             );
             ui.label(RichText::new("local").size(self.font + 2.0).weak());
             ui.add_space(if narrow { 4.0 } else { 12.0 });
-            let width = if narrow {
-                (ui.available_width() - 24.0).max(60.0)
-            } else {
-                320.0
-            };
-            ui.add(
-                TextEdit::singleline(&mut self.doc.title)
-                    .hint_text("Untitled task")
-                    .font(TextStyle::Heading)
-                    .frame(egui::Frame::NONE)
-                    .desired_width(width),
-            );
-            if self.dirty() {
-                ui.label(RichText::new("●").color(ui.visuals().weak_text_color()))
-                    .on_hover_text("Unsaved changes");
-            }
             if narrow {
+                self.tool_tabs(ui);
                 return;
+            }
+            self.tool_tabs(ui);
+            ui.separator();
+            if stuki {
+                ui.label(RichText::new(self.stuki.file_name()).strong())
+                    .on_hover_text("File of the current structogram");
+                if self.stuki.dirty() {
+                    ui.label(RichText::new("●").color(ui.visuals().weak_text_color()))
+                        .on_hover_text("Unsaved changes");
+                }
+            } else {
+                ui.add(
+                    TextEdit::singleline(&mut self.doc.title)
+                        .hint_text("Untitled task")
+                        .font(TextStyle::Heading)
+                        .frame(egui::Frame::NONE)
+                        .desired_width(260.0),
+                );
+                if self.dirty() {
+                    ui.label(RichText::new("●").color(ui.visuals().weak_text_color()))
+                        .on_hover_text("Unsaved changes");
+                }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 theme_buttons(ui, true);
                 self.settings_menu(ui);
                 ui.separator();
-                ui.toggle_value(&mut self.show_v, I_VIEW)
-                    .on_hover_text("Evaluation pane");
-                ui.toggle_value(&mut self.show_d, I_DATA)
-                    .on_hover_text("Test cases pane");
-                ui.toggle_value(&mut self.show_s, I_SPEC)
-                    .on_hover_text("Specification pane");
-                ui.separator();
+                if !stuki {
+                    ui.toggle_value(&mut self.show_v, I_VIEW)
+                        .on_hover_text("Evaluation pane");
+                    ui.toggle_value(&mut self.show_d, I_DATA)
+                        .on_hover_text("Test cases pane");
+                    ui.toggle_value(&mut self.show_s, I_SPEC)
+                        .on_hover_text("Specification pane");
+                    ui.separator();
+                }
                 self.file_buttons(ui, true);
             });
         });
         if !narrow {
             return;
         }
-        // phones: the buttons on a second row, then one tab per pane
+        // phones: the title, then the buttons, then one tab per pane
+        ui.horizontal(|ui| {
+            if stuki {
+                ui.label(RichText::new(self.stuki.file_name()).strong());
+                if self.stuki.dirty() {
+                    ui.label(RichText::new("●").color(ui.visuals().weak_text_color()));
+                }
+            } else {
+                ui.add(
+                    TextEdit::singleline(&mut self.doc.title)
+                        .hint_text("Untitled task")
+                        .font(TextStyle::Heading)
+                        .frame(egui::Frame::NONE)
+                        .desired_width((ui.available_width() - 24.0).max(60.0)),
+                );
+                if self.dirty() {
+                    ui.label(RichText::new("●").color(ui.visuals().weak_text_color()))
+                        .on_hover_text("Unsaved changes");
+                }
+            }
+        });
         ui.horizontal_wrapped(|ui| {
             self.file_buttons(ui, false);
             ui.separator();
             self.settings_menu(ui);
         });
+        if stuki {
+            return;
+        }
         ui.horizontal(|ui| {
             let ok = self.results.iter().flatten().filter(|o| o.pass).count();
             let bad = self.results.iter().flatten().filter(|o| !o.pass).count();
@@ -1333,9 +1445,24 @@ impl App {
         }
     }
 
+    /// Read a copied project: a structogram goes to the Stuki tab, a specification to the other.
     fn import_text(&mut self, text: &str) {
+        if stuki::model::looks_like_stuki(text) {
+            self.tool = Tool::Stuki;
+            match stuki::model::from_clipboard(text) {
+                Ok(p) => self.stuki.request(stuki::Pending::Import(p)),
+                Err(e) => self.stuki.status = e,
+            }
+            return;
+        }
         match from_clipboard(text) {
-            Ok(doc) => self.replace_doc(Replace::Import(doc)),
+            Ok(doc) => {
+                self.tool = Tool::Spec;
+                self.replace_doc(Replace::Import(doc));
+            }
+            Err(_) if self.tool == Tool::Stuki => {
+                self.stuki.status = "The clipboard doesn't contain a project: expected text starting with STUKI1: (or SPECI1:), a .st file's contents, or a Stuki link with data=.".into();
+            }
             Err(e) => self.status = e,
         }
     }
@@ -1350,6 +1477,7 @@ impl App {
         let modal = egui::Modal::new(Id::unique("files-dialog")).show(ctx, |ui| {
             ui.set_width(modal_width(ctx, 520.0));
             ui.heading(if d.save { "Save as" } else { "Open" });
+            let ext = d.ext;
             if d.save {
                 ui.horizontal(|ui| {
                     ui.add(
@@ -1357,17 +1485,18 @@ impl App {
                             .hint_text("name")
                             .desired_width(ui.available_width() - 40.0),
                     );
-                    ui.label(".sp");
+                    ui.label(format!(".{ext}"));
                 });
             }
             egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
                 if d.files.is_empty() {
-                    ui.label(RichText::new("No saved specifications yet.").weak());
+                    ui.label(RichText::new(if ext == "st" { "No saved structograms yet." } else { "No saved specifications yet." }).weak());
                 }
                 for f in &d.files {
                     let stem = f.file_stem().unwrap_or_default().to_string_lossy();
                     let chosen = d.save && stem == d.name.trim();
-                    if ui.selectable_label(chosen, format!("{I_SPEC}  {stem}")).clicked() {
+                    let icon = if ext == "st" { I_STUKI } else { I_SPEC };
+                    if ui.selectable_label(chosen, format!("{icon}  {stem}")).clicked() {
                         if d.save {
                             d.name = stem.into_owned();
                         } else {
@@ -1398,7 +1527,21 @@ impl App {
             });
         });
         if let Some(p) = open {
-            self.load(&p);
+            if d.ext == "st" {
+                self.stuki.load(&p);
+            } else {
+                self.load(&p);
+            }
+        } else if save && d.ext == "st" {
+            if let Some(dir) = &d.dir {
+                self.stuki
+                    .save_to(dir.join(format!("{}.st", d.name.trim())));
+            }
+            if let Some(next) = self.stuki.after_save.take()
+                && !self.stuki.dirty()
+            {
+                self.stuki.request(next);
+            }
         } else if save {
             if let Some(dir) = &d.dir {
                 self.save_to(dir.join(format!("{}.sp", d.name.trim())));
@@ -1446,6 +1589,33 @@ impl App {
     }
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
+        if self.tool == Tool::Stuki {
+            let st = &self.stuki;
+            let file = match &st.path {
+                Some(p) => p.display().to_string(),
+                None => "not saved yet".into(),
+            };
+            ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(
+                        RichText::new(concat!("v", env!("CARGO_PKG_VERSION")))
+                            .small()
+                            .weak(),
+                    );
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        if st.dirty() {
+                            ui.label(RichText::new("● modified").small().color(ACCENT));
+                        }
+                        if !st.status.is_empty() {
+                            ui.add(egui::Label::new(RichText::new(&st.status).small()).truncate());
+                        }
+                        ui.add(egui::Label::new(RichText::new(file).small().weak()).truncate())
+                            .on_hover_text("File of the current structogram");
+                    });
+                });
+            });
+            return;
+        }
         let spec_id = Id::unique(SPEC_ID);
         let data_id = Id::unique(("data-editor", self.current));
         let pos = [
@@ -1555,16 +1725,18 @@ impl eframe::App for App {
             theme(&ctx, self.font);
             self.applied.0 = self.font;
         }
-        let name = self
-            .path
-            .as_ref()
-            .and_then(|p| p.file_name())
-            .map(|f| f.to_string_lossy().to_string())
-            .unwrap_or_else(|| "untitled.sp".into());
-        let title = format!(
-            "{}{name} — speci-local",
-            if self.dirty() { "● " } else { "" }
-        );
+        let (name, dirty) = match self.tool {
+            Tool::Stuki => (self.stuki.file_name(), self.stuki.dirty()),
+            Tool::Spec => (
+                self.path
+                    .as_ref()
+                    .and_then(|p| p.file_name())
+                    .map(|f| f.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "untitled.sp".into()),
+                self.dirty(),
+            ),
+        };
+        let title = format!("{}{name} — speci-local", if dirty { "● " } else { "" });
         if self.applied.1 != title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.applied.1 = title;
@@ -1584,7 +1756,7 @@ impl eframe::App for App {
             )
         });
         let now = ctx.input(|i| i.time);
-        if run {
+        if run && self.tool == Tool::Spec {
             self.evaluate(now);
         }
         // auto-evaluation: wait until typing pauses, then run in the background
@@ -1604,14 +1776,29 @@ impl eframe::App for App {
         if self.job.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(30));
         }
-        if save || save_as {
-            self.save(save_as);
-        }
-        if open {
-            self.replace_doc(Replace::Open);
-        }
-        if new {
-            self.replace_doc(Replace::New);
+        match self.tool {
+            Tool::Spec => {
+                if save || save_as {
+                    self.save(save_as);
+                }
+                if open {
+                    self.replace_doc(Replace::Open);
+                }
+                if new {
+                    self.replace_doc(Replace::New);
+                }
+            }
+            Tool::Stuki => {
+                if save || save_as {
+                    self.stuki.save(save_as);
+                }
+                if open {
+                    self.stuki.request(stuki::Pending::Open);
+                }
+                if new {
+                    self.stuki.request(stuki::Pending::New);
+                }
+            }
         }
         // drag & drop a .sp file onto the window
         if let Some(path) = ctx.input(|i| {
@@ -1620,9 +1807,22 @@ impl eframe::App for App {
                 .iter()
                 .find_map(|f| Some(f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty()))
         }) {
-            self.replace_doc(Replace::Load(path));
+            if path
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("st"))
+            {
+                self.load(&path);
+            } else {
+                self.tool = Tool::Spec;
+                self.replace_doc(Replace::Load(path));
+            }
         }
         self.confirm_dialog(&ctx);
+        self.stuki.confirm_dialog(&ctx);
+        #[cfg(target_os = "android")]
+        if let Some((save, name)) = self.stuki.file_request.take() {
+            self.files = Some(FileDialog::new(save, name, "st"));
+        }
         #[cfg(target_os = "android")]
         self.files_dialog(&ctx);
         self.paste_dialog(&ctx);
@@ -1634,7 +1834,10 @@ impl eframe::App for App {
             )
         });
         if copy {
-            self.copy_project(&ctx);
+            match self.tool {
+                Tool::Spec => self.copy_project(&ctx),
+                Tool::Stuki => self.stuki.copy_project(&ctx),
+            }
         }
         if paste {
             self.paste_project();
@@ -1695,6 +1898,10 @@ impl App {
         egui::Panel::bottom("status")
             .frame(bar.inner_margin(Margin::symmetric(12, 3)))
             .show(ui, |ui| self.status_bar(ui));
+        if self.tool == Tool::Stuki {
+            self.stuki.show(ui);
+            return;
+        }
         let pane = egui::Frame::new()
             .fill(ui.visuals().panel_fill)
             .inner_margin(Margin::same(10));
@@ -1864,7 +2071,107 @@ mod tests {
         let h = harness([1360.0, 900.0]);
         assert!(!h.state().narrow);
         for (icon, title) in [(I_SPEC, "Specification"), (I_DATA, "Test cases"), (I_VIEW, "Evaluation")] {
-            h.get_by_label(&format!("{icon}  {title}"));
+            assert!(h.query_all_by_label(&format!("{icon}  {title}")).count() >= 1, "{title}");
         }
+    }
+
+    /// Stuki: drag an element from the Elements menu into the diagram, drag it out again
+    /// (deletes it), and undo.
+    #[test]
+    fn stuki_drag_and_drop() {
+        use crate::stuki::model::Kind;
+        let mut h = Harness::builder()
+            .with_size([1360.0, 900.0])
+            .build_eframe(|cc| {
+                let mut a = create(cc, None);
+                a.tool = Tool::Stuki;
+                a.stuki = Stuki::default();
+                a
+            });
+        h.run_steps(4);
+        let drag = |h: &mut Harness<'static, App>, from: egui::Pos2, to: egui::Pos2| {
+            h.hover_at(from);
+            h.run();
+            h.drag_at(from);
+            h.run();
+            for k in 1..=8 {
+                h.hover_at(from + (to - from) * k as f32 / 8.0);
+                h.run();
+            }
+            h.drop_at(to);
+            h.run_steps(3);
+        };
+        let (nodes, elements) = h.state().stuki.seen.clone();
+        assert_eq!(elements.len(), 5);
+        let noop = nodes[0].1;
+        drag(&mut h, elements[1].center(), noop.center()); // decision
+        let body = &h.state().stuki.program.diagrams[0].body;
+        assert_eq!(body.len(), 1);
+        assert!(matches!(body[0].kind, Kind::If { .. }));
+        // just below the structogram: after the decision, its last element
+        let (nodes, elements) = h.state().stuki.seen.clone();
+        let decision = nodes[0].1;
+        drag(&mut h, elements[0].center(), decision.center_bottom() + egui::vec2(0.0, 10.0));
+        let body = &h.state().stuki.program.diagrams[0].body;
+        assert_eq!(body.len(), 2);
+        assert!(matches!(body[1].kind, Kind::Statement(_)));
+        // the bottom edge of the decision's branch: after the decision, not inside the branch
+        let (nodes, elements) = h.state().stuki.seen.clone();
+        let branch = nodes[1].1; // the true branch's empty statement
+        drag(&mut h, elements[2].center(), branch.center_bottom() - egui::vec2(0.0, 2.0));
+        let body = &h.state().stuki.program.diagrams[0].body;
+        assert_eq!(body.len(), 3);
+        assert!(matches!(body[1].kind, Kind::While { .. }));
+        // the middle of the branch's empty statement still replaces it
+        let (nodes, elements) = h.state().stuki.seen.clone();
+        drag(&mut h, elements[0].center(), nodes[1].1.center());
+        match &h.state().stuki.program.diagrams[0].body[0].kind {
+            Kind::If { yes, .. } => assert!(matches!(yes[0].kind, Kind::Statement(_))),
+            _ => panic!("the decision moved"),
+        }
+        // drag the decision out of the structogram by its empty corner: deleted
+        let (nodes, _) = h.state().stuki.seen.clone();
+        let decision = nodes[0].1;
+        drag(&mut h, decision.left_top() + egui::vec2(4.0, 4.0), egui::pos2(1300.0, 850.0));
+        assert_eq!(h.state().stuki.program.diagrams[0].body.len(), 2);
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+        h.run_steps(2);
+        assert_eq!(h.state().stuki.program.diagrams[0].body.len(), 3);
+        assert!(h.state().stuki.dirty());
+    }
+
+    /// Stuki: Ctrl+C and the toolbar's copy button copy a picture, Ctrl+Shift+C the text line.
+    #[test]
+    fn stuki_copies_pictures() {
+        let mut h = Harness::builder()
+            .with_size([1360.0, 900.0])
+            .build_eframe(|cc| {
+                let mut a = create(cc, None);
+                a.tool = Tool::Stuki;
+                a.stuki = Stuki::default();
+                a
+            });
+        h.run_steps(3);
+        let copied = |h: &Harness<'static, App>| {
+            h.output().platform_output.commands.iter().find_map(|c| match c {
+                egui::OutputCommand::CopyImage(img) => Some(format!("image {}x{}", img.size[0], img.size[1])),
+                egui::OutputCommand::CopyText(t) => Some(t.clone()),
+                _ => None,
+            })
+        };
+        h.event(egui::Event::Copy);
+        h.step();
+        assert!(copied(&h).is_some_and(|c| c.starts_with("image")), "{:?}", copied(&h));
+        h.run();
+        h.get_by_label(I_COPY).click();
+        h.step();
+        assert!(copied(&h).is_some_and(|c| c.starts_with("image")), "{:?}", copied(&h));
+        h.run();
+        h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::C);
+        h.step();
+        assert!(h.state().stuki.status.contains("whole structogram project"), "{}", h.state().stuki.status);
+        // pictures stay light in dark mode
+        let img = h.state().stuki.render_png(&h.ctx, None).unwrap();
+        assert_eq!(img.pixels[0], egui::Color32::WHITE);
     }
 }

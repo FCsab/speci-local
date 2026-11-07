@@ -5,6 +5,7 @@ pub mod eval;
 pub mod file;
 pub mod parser;
 pub mod platform;
+pub mod stuki;
 mod editor;
 
 use diag::Diagnostic;
