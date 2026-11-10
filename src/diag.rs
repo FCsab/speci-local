@@ -68,15 +68,11 @@ impl Diagnostic {
             } else {
                 spec_src
             };
-            if let Some(text) = src.lines().nth(self.line - 1) {
+            if let Some(line) = src.lines().nth(self.line - 1) {
+                let (text, col) = excerpt(line, self.col);
                 let num = self.line.to_string();
                 let _ = writeln!(out, " {num} | {text}");
-                let _ = writeln!(
-                    out,
-                    " {} | {}^",
-                    " ".repeat(num.len()),
-                    " ".repeat(self.col.saturating_sub(1))
-                );
+                let _ = writeln!(out, " {} | {}^", " ".repeat(num.len()), " ".repeat(col - 1));
             }
         } else {
             let _ = writeln!(out, "{}", self.title);
@@ -89,6 +85,26 @@ impl Diagnostic {
         }
         out.trim_end().to_string()
     }
+}
+
+const EXCERPT: usize = 160;
+
+pub fn excerpt(line: &str, col: usize) -> (String, usize) {
+    let len = line.chars().count();
+    let col = col.clamp(1, len + 1);
+    if len <= EXCERPT {
+        return (line.to_string(), col);
+    }
+    let start = (col - 1).saturating_sub(EXCERPT / 2).min(len - EXCERPT);
+    let mut text = String::new();
+    if start > 0 {
+        text.push('…');
+    }
+    text.extend(line.chars().skip(start).take(EXCERPT));
+    if start + EXCERPT < len {
+        text.push('…');
+    }
+    (text, col - start + usize::from(start > 0))
 }
 
 /// Levenshtein distance, for "did you mean" suggestions.
@@ -112,9 +128,10 @@ pub fn distance(a: &str, b: &str) -> usize {
 /// Closest candidate within a small edit distance.
 pub fn suggest<'a>(word: &str, candidates: impl IntoIterator<Item = &'a str>) -> Option<&'a str> {
     let limit = (word.chars().count() / 3).max(1);
+    let word = word.to_lowercase();
     candidates
         .into_iter()
-        .map(|c| (distance(&word.to_lowercase(), &c.to_lowercase()), c))
+        .map(|c| (distance(&word, &c.to_lowercase()), c))
         .filter(|(d, _)| *d <= limit)
         .min_by_key(|(d, _)| *d)
         .map(|(_, c)| c)
@@ -124,4 +141,88 @@ pub fn did_you_mean<'a>(word: &str, candidates: impl IntoIterator<Item = &'a str
     suggest(word, candidates)
         .map(|s| format!(" Did you mean `{s}`?"))
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn long_lines_are_cut_around_the_column() {
+        assert_eq!(excerpt("n: 3", 4), ("n: 3".to_string(), 4));
+        assert_eq!(excerpt("n: 3", 99).1, 5);
+        assert_eq!(excerpt("", 0), (String::new(), 1));
+        let line: String = (0..1000u32)
+            .map(|i| char::from_u32(0x4E00 + i).unwrap())
+            .collect();
+        for col in [1, 2, 80, 81, 500, 920, 921, 1000, 1001] {
+            let (text, at) = excerpt(&line, col);
+            assert!(text.chars().count() <= EXCERPT + 2);
+            let under = text.chars().nth(at - 1);
+            assert_eq!(under, line.chars().nth(col - 1).or(None), "column {col}");
+            assert_eq!(text.starts_with('…'), col > 81, "column {col}");
+            assert_eq!(text.ends_with('…'), col < 921, "column {col}");
+        }
+        let data = format!("x: [{}]", vec!["1"; 5000].join(", "));
+        let shown = Diagnostic::new(1, 9000, "bad").data().render("", &data);
+        let lines: Vec<&str> = shown.lines().collect();
+        assert!(lines[1].chars().count() < 200 && lines[2].ends_with('^'));
+        assert_eq!(
+            lines[1].chars().count(),
+            lines[1].trim_end().chars().count()
+        );
+        let caret = lines[2].chars().count() - 1;
+        assert_eq!(lines[1].chars().nth(caret), data.chars().nth(8999));
+    }
+
+    #[test]
+    fn edit_distance() {
+        for (a, b, d) in [
+            ("", "", 0),
+            ("abc", "abc", 0),
+            ("", "abc", 3),
+            ("kitten", "sitting", 3),
+            ("szamok", "számok", 1),
+            ("ab", "ba", 2),
+        ] {
+            assert_eq!(distance(a, b), d, "{a} → {b}");
+            assert_eq!(distance(b, a), d, "{b} → {a}");
+        }
+    }
+
+    #[test]
+    fn suggestions_are_close_and_case_blind() {
+        let names = ["szamok", "db", "n"];
+        assert_eq!(suggest("szamko", names), Some("szamok"));
+        assert_eq!(suggest("SZAMOK", names), Some("szamok"));
+        assert_eq!(suggest("dc", names), Some("db"));
+        assert_eq!(suggest("xyz", names), None);
+        assert_eq!(suggest("anything", []), None);
+        assert_eq!(suggest("Post", ["Pre", "Post", "Pos"]), Some("Post"));
+        assert_eq!(did_you_mean("szamko", names), " Did you mean `szamok`?");
+        assert_eq!(did_you_mean("xyz", names), "");
+    }
+
+    #[test]
+    fn builders_fill_in_the_parts() {
+        let d = Diagnostic::new(3, 5, "Title").explain("Why").hint("How");
+        assert_eq!((d.pane, d.line, d.col), (Pane::Spec, 3, 5));
+        assert_eq!(
+            d.render("a\nb\ncdefgh", ""),
+            "Specification, line 3, column 5: Title\n 3 | cdefgh\n   |     ^\nWhy\nFix: How"
+        );
+        assert_eq!(
+            d.render("a", ""),
+            "Specification, line 3, column 5: Title\nWhy\nFix: How"
+        );
+        let d = Diagnostic::new(1, 1, "T").data();
+        assert_eq!(d.pane, Pane::Data);
+        assert_eq!(
+            d.render("spec", "data"),
+            "Test data, line 1, column 1: T\n 1 | data\n   | ^"
+        );
+        let d = Diagnostic::plain("No position");
+        assert_eq!((d.pane, d.line), (Pane::None, 0));
+        assert_eq!(d.render("spec", "data"), "No position");
+    }
 }

@@ -6,6 +6,8 @@
 
 use eframe::egui::{self, Color32, ColorImage, Shape, Vec2, epaint};
 
+const MAX_SIDE: usize = 16384;
+
 /// Render `shapes` (in points, starting at 0,0) at `ppp` pixels per point over `bg`.
 pub fn render(
     ctx: &egui::Context,
@@ -24,65 +26,25 @@ pub fn render(
     for s in shapes {
         tess.tessellate_shape(s, &mut mesh);
     }
-    let w = ((size.x * ppp).ceil() as usize).clamp(1, 16384);
-    let h = ((size.y * ppp).ceil() as usize).clamp(1, 16384);
-    let bgf = [bg.r() as f32, bg.g() as f32, bg.b() as f32, bg.a() as f32];
-    let mut px = vec![bgf; w * h];
+    let w = ((size.x * ppp).ceil() as usize).clamp(1, MAX_SIDE);
+    let h = ((size.y * ppp).ceil() as usize).clamp(1, MAX_SIDE);
+    let mut px = vec![rgba(bg); w * h];
     let tex = |u: f32, v: f32| -> [f32; 4] {
         let x = ((u * atlas.size[0] as f32) as usize).min(atlas.size[0] - 1);
         let y = ((v * atlas.size[1] as f32) as usize).min(atlas.size[1] - 1);
-        let c = atlas.pixels[y * atlas.size[0] + x];
-        [c.r() as f32, c.g() as f32, c.b() as f32, c.a() as f32]
+        rgba(atlas.pixels[y * atlas.size[0] + x])
     };
     for t in mesh.indices.chunks_exact(3) {
-        let v = [
-            &mesh.vertices[t[0] as usize],
-            &mesh.vertices[t[1] as usize],
-            &mesh.vertices[t[2] as usize],
-        ];
-        let p: Vec<[f32; 2]> = v.iter().map(|v| [v.pos.x * ppp, v.pos.y * ppp]).collect();
+        let v = [t[0], t[1], t[2]].map(|i| &mesh.vertices[i as usize]);
+        let p = v.map(|v| [v.pos.x * ppp, v.pos.y * ppp]);
         let area =
             (p[1][0] - p[0][0]) * (p[2][1] - p[0][1]) - (p[2][0] - p[0][0]) * (p[1][1] - p[0][1]);
         if area.abs() < 1e-6 {
             continue;
         }
-        let x0 = p
-            .iter()
-            .map(|q| q[0])
-            .fold(f32::MAX, f32::min)
-            .floor()
-            .max(0.0) as usize;
-        let x1 = (p
-            .iter()
-            .map(|q| q[0])
-            .fold(f32::MIN, f32::max)
-            .ceil()
-            .max(0.0) as usize)
-            .min(w);
-        let y0 = p
-            .iter()
-            .map(|q| q[1])
-            .fold(f32::MAX, f32::min)
-            .floor()
-            .max(0.0) as usize;
-        let y1 = (p
-            .iter()
-            .map(|q| q[1])
-            .fold(f32::MIN, f32::max)
-            .ceil()
-            .max(0.0) as usize)
-            .min(h);
-        let col: Vec<[f32; 4]> = v
-            .iter()
-            .map(|v| {
-                [
-                    v.color.r() as f32,
-                    v.color.g() as f32,
-                    v.color.b() as f32,
-                    v.color.a() as f32,
-                ]
-            })
-            .collect();
+        let (x0, x1) = pixel_span(p.map(|q| q[0]), w);
+        let (y0, y1) = pixel_span(p.map(|q| q[1]), h);
+        let col = v.map(|v| rgba(v.color));
         for y in y0..y1 {
             for x in x0..x1 {
                 let (cx, cy) = (x as f32 + 0.5, y as f32 + 0.5);
@@ -121,6 +83,19 @@ pub fn render(
     ColorImage::new([w, h], pixels)
 }
 
+fn rgba(c: Color32) -> [f32; 4] {
+    [c.r() as f32, c.g() as f32, c.b() as f32, c.a() as f32]
+}
+
+fn pixel_span(coords: [f32; 3], len: usize) -> (usize, usize) {
+    let min = coords.into_iter().fold(f32::MAX, f32::min);
+    let max = coords.into_iter().fold(f32::MIN, f32::max);
+    (
+        min.floor().max(0.0) as usize,
+        (max.ceil().max(0.0) as usize).min(len),
+    )
+}
+
 /// PNG file bytes of an image.
 pub fn encode(img: &ColorImage) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
@@ -137,4 +112,79 @@ pub fn encode(img: &ColorImage) -> Result<Vec<u8>, String> {
         w.write_image_data(&data).map_err(|e| e.to_string())?;
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eframe::egui::{Rect, pos2, vec2};
+
+    fn rendered(shapes: Vec<Shape>, size: Vec2, ppp: f32, bg: Color32) -> ColorImage {
+        let ctx = egui::Context::default();
+        let mut img = None;
+        let mut out = ctx.run_ui(Default::default(), |ui| {
+            img = Some(render(ui.ctx(), shapes.clone(), size, ppp, bg));
+        });
+        out.textures_delta.clear();
+        img.unwrap()
+    }
+
+    #[test]
+    fn fills_rectangles_at_the_requested_scale() {
+        let red = Color32::from_rgb(200, 0, 0);
+        let rect = Rect::from_min_size(pos2(2.0, 1.0), vec2(4.0, 2.0));
+        let img = rendered(
+            vec![Shape::rect_filled(rect, 0.0, red)],
+            vec2(8.0, 4.0),
+            2.0,
+            Color32::WHITE,
+        );
+        assert_eq!(img.size, [16, 8]);
+        let at = |x: usize, y: usize| img.pixels[y * 16 + x];
+        assert_eq!(at(0, 0), Color32::WHITE);
+        assert_eq!(at(15, 7), Color32::WHITE);
+        for (x, y) in [(6, 3), (10, 4), (5, 4)] {
+            assert_eq!(at(x, y), red, "({x}, {y})");
+        }
+        assert_eq!(at(1, 3), Color32::WHITE);
+        assert_eq!(at(8, 7), Color32::WHITE);
+    }
+
+    #[test]
+    fn shapes_outside_the_picture_are_clipped() {
+        let far = Rect::from_min_size(pos2(-50.0, -50.0), vec2(500.0, 500.0));
+        let blue = Color32::from_rgb(0, 0, 255);
+        let img = rendered(
+            vec![Shape::rect_filled(far, 0.0, blue)],
+            vec2(3.0, 2.0),
+            1.0,
+            Color32::WHITE,
+        );
+        assert_eq!(img.size, [3, 2]);
+        assert!(img.pixels.iter().all(|p| *p == blue));
+        let img = rendered(vec![], Vec2::ZERO, 1.0, Color32::BLACK);
+        assert_eq!((img.size, img.pixels[0]), ([1, 1], Color32::BLACK));
+    }
+
+    #[test]
+    fn encodes_png_that_decodes_to_the_same_pixels() {
+        let img = ColorImage::new(
+            [2, 2],
+            vec![
+                Color32::RED,
+                Color32::from_rgb(1, 2, 3),
+                Color32::WHITE,
+                Color32::BLACK,
+            ],
+        );
+        let bytes = encode(&img).unwrap();
+        assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n");
+        let mut reader = png::Decoder::new(std::io::Cursor::new(bytes))
+            .read_info()
+            .unwrap();
+        let mut buf = vec![0; 16];
+        let info = reader.next_frame(&mut buf).unwrap();
+        assert_eq!((info.width, info.height), (2, 2));
+        assert_eq!(&buf[..8], &[255, 0, 0, 255, 1, 2, 3, 255]);
+    }
 }

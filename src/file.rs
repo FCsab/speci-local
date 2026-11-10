@@ -11,6 +11,7 @@
 //! ---*/
 //! ```
 
+use crate::compact;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
@@ -76,28 +77,14 @@ pub const COMPACT_PREFIX: &str = "SPECI1:";
 
 /// The whole project as one short line: `SPECI1:` + base64url(deflate(.sp text)).
 pub fn to_compact(doc: &Doc) -> String {
-    let packed = miniz_oxide::deflate::compress_to_vec(to_sp(doc).as_bytes(), 9);
-    format!("{COMPACT_PREFIX}{}", b64_encode(&packed))
+    compact::pack(COMPACT_PREFIX, &to_sp(doc))
 }
 
 /// Read a project back from clipboard text: the compact form, or plain `.sp` / specification text.
 pub fn from_clipboard(text: &str) -> Result<Doc, String> {
     let t = text.trim();
     if let Some(rest) = t.strip_prefix(COMPACT_PREFIX) {
-        // chat apps and mail clients like to wrap long lines
-        let rest: String = rest.chars().filter(|c| !c.is_whitespace()).collect();
-        let packed = b64_decode(&rest).ok_or(
-            "The text after SPECI1: is damaged (not valid base64). Was it copied completely?",
-        )?;
-        let raw = miniz_oxide::inflate::decompress_to_vec_with_limit(&packed, 16 << 20).map_err(
-            |_| {
-                "The copied project is damaged or incomplete. Copy it again from the source."
-                    .to_string()
-            },
-        )?;
-        let sp = String::from_utf8(raw)
-            .map_err(|_| "The copied project is not valid text.".to_string())?;
-        return Ok(from_sp(&sp));
+        return Ok(from_sp(&compact::unpack(COMPACT_PREFIX, rest, "project")?));
     }
     let looks_like_spec = t.lines().any(|l| {
         let l = l.trim_start();
@@ -114,57 +101,57 @@ pub fn from_clipboard(text: &str) -> Result<Doc, String> {
     }
 }
 
-const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-
-/// base64url without padding (URL- and chat-safe).
-pub(crate) fn b64_encode(data: &[u8]) -> String {
-    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
-    for chunk in data.chunks(3) {
-        let n = chunk
-            .iter()
-            .enumerate()
-            .fold(0u32, |acc, (i, b)| acc | (*b as u32) << (16 - 8 * i));
-        for i in 0..=chunk.len() {
-            out.push(B64[(n >> (18 - 6 * i) & 63) as usize] as char);
-        }
-    }
-    out
-}
-
-pub(crate) fn b64_decode(s: &str) -> Option<Vec<u8>> {
-    let s = s.trim_end_matches('=');
-    let mut out = Vec::with_capacity(s.len() * 3 / 4);
-    let (mut acc, mut bits) = (0u32, 0);
-    for c in s.bytes() {
-        // also accept the standard alphabet (+ /)
-        let v = match c {
-            b'+' => 62,
-            b'/' => 63,
-            _ => B64.iter().position(|&x| x == c)? as u32,
-        };
-        acc = acc << 6 | v;
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            out.push((acc >> bits) as u8);
-        }
-    }
-    Some(out)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn base64_round_trip() {
-        for len in 0..40 {
-            let data: Vec<u8> = (0..len).map(|i| (i * 37 + 11) as u8).collect();
-            assert_eq!(b64_decode(&b64_encode(&data)).unwrap(), data, "len {len}");
-        }
-        assert_eq!(b64_encode(b"Man"), "TWFu");
-        assert_eq!(b64_encode(b"Ma"), "TWE");
-        assert!(b64_decode("TW!u").is_none());
+    fn sp_files_keep_title_spec_and_tests() {
+        let doc = Doc {
+            title: "Páros számok".into(),
+            spec: "Be: n∈N\nKi: x∈N\nEf: -\nUf: x=n\n".into(),
+            tests: vec!["n: 1\nx: 1\n".into(), "n: 2\nx: 2\n".into()],
+        };
+        let sp = to_sp(&doc);
+        assert!(sp.starts_with("// title: Páros számok\nBe: n∈N\n"));
+        assert_eq!(sp.matches("/*--- test ---\n").count(), 2);
+        assert_eq!(from_sp(&sp), doc);
+        // the whole file is a valid specification: the tests are comments
+        assert!(crate::parse(&sp).is_ok());
+        let windows = format!("\u{feff}{}", sp.replace('\n', "\r\n"));
+        assert_eq!(from_sp(&windows), doc);
+    }
+
+    #[test]
+    fn sp_files_without_title_or_tests() {
+        let doc = from_sp("Be: n∈N\n\n\n");
+        assert_eq!(doc.title, "");
+        assert_eq!(doc.spec, "Be: n∈N\n");
+        assert_eq!(doc.tests, [""]);
+        assert!(to_sp(&doc).starts_with("Be: n∈N\n"));
+        let doc = from_sp("Be: n∈N\n/*--- test ---\nn: 1\n");
+        assert_eq!(doc.tests, ["n: 1\n"]);
+    }
+
+    #[test]
+    fn comment_end_inside_a_test_cannot_close_it() {
+        let doc = Doc {
+            title: String::new(),
+            spec: "Be: s∈S\n".into(),
+            tests: vec!["s: \"a*/b\"\n".into()],
+        };
+        let sp = to_sp(&doc);
+        assert_eq!(sp.matches("*/").count(), 1, "{sp}");
+        assert_eq!(from_sp(&sp).tests, ["s: \"a* /b\"\n"]);
+    }
+
+    #[test]
+    fn clipboard_text_is_recognised() {
+        let plain = "// my notes\n  Be: n∈N\nKi: x∈N\nEf: -\nUf: x=n";
+        assert_eq!(from_clipboard(plain).unwrap().spec, format!("{plain}\n"));
+        let e = from_clipboard("just some text").unwrap_err();
+        assert!(e.contains("doesn't contain a project"), "{e}");
+        assert!(from_clipboard("  \n ").unwrap_err().contains("empty"));
     }
 
     #[test]

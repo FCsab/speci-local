@@ -3,17 +3,43 @@
 use crate::diag::{Diagnostic, did_you_mean};
 use crate::eval::{Env, Eval, Value};
 use crate::parser::{Expr, Role, Spec, Type};
+use std::fmt;
 use yaml_rust2::{Yaml, YamlLoader};
 
+struct Shown<'a>(&'a Yaml);
+
+impl fmt::Display for Shown<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.0 {
+            Yaml::Integer(i) => write!(f, "{i}"),
+            Yaml::Real(s) | Yaml::String(s) => f.write_str(s),
+            Yaml::Boolean(b) => write!(f, "{b}"),
+            Yaml::Array(a) => write!(f, "[{} element(s)]", a.len()),
+            Yaml::Hash(_) => f.write_str("{…}"),
+            Yaml::Null => f.write_str("nothing"),
+            _ => f.write_str("?"),
+        }
+    }
+}
+
 fn show(y: &Yaml) -> String {
-    match y {
-        Yaml::Integer(i) => i.to_string(),
-        Yaml::Real(s) | Yaml::String(s) => s.clone(),
-        Yaml::Boolean(b) => b.to_string(),
-        Yaml::Array(a) => format!("[{} element(s)]", a.len()),
-        Yaml::Hash(_) => "{…}".into(),
-        Yaml::Null => "nothing".into(),
-        _ => "?".into(),
+    Shown(y).to_string()
+}
+
+#[derive(Clone, Copy)]
+enum Path<'a> {
+    Variable(&'a str),
+    Item(&'a Path<'a>, i64),
+    Field(&'a Path<'a>, &'a str),
+}
+
+impl fmt::Display for Path<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Path::Variable(name) => f.write_str(name),
+            Path::Item(of, index) => write!(f, "{of}[{index}]"),
+            Path::Field(of, name) => write!(f, "{of}.{name}"),
+        }
     }
 }
 
@@ -65,15 +91,15 @@ struct Conv<'a, 'b> {
 
 impl Conv<'_, '_> {
     fn bound(&mut self, e: &Expr) -> Option<i64> {
-        match self.ev.eval(e, &mut self.env.clone()) {
+        match self.ev.eval_scratch(e, self.env) {
             Ok(Value::Int(i)) => Some(i),
             _ => None,
         }
     }
 
-    fn conv(&mut self, y: &Yaml, t: &Type, path: &str) -> Result<Value, String> {
+    fn conv(&mut self, y: &Yaml, t: &Type, path: Path) -> Result<Value, String> {
         let spec = self.spec;
-        let got = show(y);
+        let got = Shown(y);
         match t {
             Type::Named(n) => {
                 let r = spec
@@ -175,7 +201,7 @@ impl Conv<'_, '_> {
                 if let Some(h) = hi
                     && let Some(to) = self.bound(h)
                 {
-                    let want = (to - from + 1).max(0);
+                    let want = to.saturating_sub(from).saturating_add(1).max(0);
                     if items.len() as i64 != want {
                         let txt = spec.text(h);
                         let why = if txt.parse::<i64>().is_ok() {
@@ -190,43 +216,45 @@ impl Conv<'_, '_> {
                         ));
                     }
                 }
-                let mut v = Vec::new();
+                let mut v = Vec::with_capacity(items.len());
                 for (k, item) in items.iter().enumerate() {
-                    v.push(self.conv(item, elem, &format!("{path}[{}]", from + k as i64))?);
+                    let index = from.saturating_add(k as i64);
+                    v.push(self.conv(item, elem, Path::Item(&path, index))?);
                 }
-                Ok(Value::Arr { from, items: v })
+                Ok(Value::Arr {
+                    from,
+                    items: v.into(),
+                })
             }
             Type::Record(fields) => {
+                let names = || fields.iter().map(|(n, _)| n.as_str());
                 let Yaml::Hash(h) = y else {
-                    let names: Vec<&str> = fields.iter().map(|(n, _)| n.as_str()).collect();
                     return Err(format!(
                         "`{path}` should be a record like `{{{}}}`, but it is `{got}`.",
-                        names
-                            .iter()
+                        names()
                             .map(|n| format!("{n}: …"))
                             .collect::<Vec<_>>()
                             .join(", ")
                     ));
                 };
-                let names: Vec<&str> = fields.iter().map(|(n, _)| n.as_str()).collect();
-                for k in h.keys() {
+                let is_field = |k: &Yaml, name: &str| matches!(k, Yaml::String(s) if s == name);
+                if let Some(k) = h.keys().find(|k| !names().any(|n| is_field(k, n))) {
                     let k = show(k);
-                    if !names.contains(&k.as_str()) {
-                        return Err(format!(
-                            "`{path}` has an unknown field `{k}`. The record's fields are: {} (case-sensitive).{}",
-                            names.join(", "),
-                            did_you_mean(&k, names.iter().copied())
-                        ));
-                    }
+                    return Err(format!(
+                        "`{path}` has an unknown field `{k}`. The record's fields are: {} (case-sensitive).{}",
+                        names().collect::<Vec<_>>().join(", "),
+                        did_you_mean(&k, names())
+                    ));
                 }
-                let mut out = Vec::new();
+                let mut out = Vec::with_capacity(fields.len());
                 for (n, ft) in fields {
-                    let fy = h
-                        .get(&Yaml::String(n.clone()))
+                    let (_, fy) = h
+                        .iter()
+                        .find(|(k, _)| is_field(k, n))
                         .ok_or_else(|| format!("`{path}` is missing the field `{n}`."))?;
-                    out.push((n.clone(), self.conv(fy, ft, &format!("{path}.{n}"))?));
+                    out.push((n.clone(), self.conv(fy, ft, Path::Field(&path, n))?));
                 }
-                Ok(Value::Rec(out))
+                Ok(Value::Rec(out.into()))
             }
         }
     }
@@ -267,7 +295,7 @@ pub fn load(spec: &Spec, text: &str) -> Result<Env, Diagnostic> {
                 .data());
         }
     }
-    let mut env = Env::new();
+    let mut env = Env::default();
     let mut ev = Eval::new(spec);
     // scalars first, so array bounds like [1..n] can use them
     let is_arr = |t: &Type| matches!(spec.resolve(t), Some(Type::Array { .. }));
@@ -291,7 +319,7 @@ pub fn load(spec: &Spec, text: &str) -> Result<Env, Diagnostic> {
                     ev: &mut ev,
                     env: &mut env,
                 };
-                c.conv(y, &d.ty, &d.name).map_err(|msg| {
+                c.conv(y, &d.ty, Path::Variable(&d.name)).map_err(|msg| {
                     Diagnostic::new(
                         line,
                         1,
@@ -309,12 +337,12 @@ pub fn load(spec: &Spec, text: &str) -> Result<Env, Diagnostic> {
             }
             None => match &d.init {
                 Some(init) => {
-                    let mut v = ev.eval(init, &mut env.clone())?;
+                    let mut v = ev.eval_scratch(init, &mut env)?;
                     // every dimension takes its start index from the declaration (`Z[-1..1,-1..1]`)
                     let mut starts = Vec::new();
                     let mut t = spec.resolve(&d.ty);
                     while let Some(Type::Array { lo, elem, .. }) = t {
-                        match ev.eval(lo, &mut env.clone()) {
+                        match ev.eval_scratch(lo, &mut env) {
                             Ok(Value::Int(f)) => starts.push(f),
                             _ => break,
                         }
@@ -324,24 +352,21 @@ pub fn load(spec: &Spec, text: &str) -> Result<Env, Diagnostic> {
                     v
                 }
                 None => {
-                    let what = match d.role {
-                        Role::In => "Input",
-                        Role::Aux => "Auxiliary variable",
-                        Role::Out => "Output",
-                    };
                     let mut why = "Every declared variable needs a value in each test case: inputs, auxiliary variables and outputs alike.".to_string();
                     if d.role != Role::In {
                         why += " Give one even when it doesn't matter (for example `ind` when SEARCH found nothing): any valid value will do.";
                     }
                     return Err(Diagnostic::plain(format!(
-                        "{what} `{}` is missing from this test case",
+                        "{} `{}` is missing from this test case",
+                        d.role.noun(),
                         d.name
                     ))
                     .explain(why)
                     .hint(format!(
                         "Add a line `{}: …`, or press Scaffold to insert every variable name.",
                         d.name
-                    )).data());
+                    ))
+                    .data());
                 }
             },
         };
