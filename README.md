@@ -294,7 +294,7 @@ How the pieces are tested against each other:
 ## Releasing
 
 1. Raise `version` in `Cargo.toml`. CI alone never publishes anything.
-2. Press *Run workflow* on the Release workflow, or push a matching tag (`git tag v0.4.0 && git push origin v0.4.0`).
+2. Press *Run workflow* on the Release workflow, or push a matching tag (`git tag v0.5.0 && git push origin v0.5.0`).
 
 The workflow builds every platform, runs the tests, and attaches the files to the release.
 
