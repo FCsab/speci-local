@@ -213,16 +213,16 @@ fn task7_8_darab_and_filtered_sum() {
 #[test]
 fn task9_lookup_table() {
     let spec = "Be:\n\nlapok∈S[1..8]=[\"also\",\"felso\",\"kiraly\",\"VII\", \"VIII\", \"IX\", \"X\", \"asz\"],\n\nertekek∈N[1..8]=[2,3,4,7,8,9,10,11], lap∈S\n\nKi:\n\nertek∈N\n\nEf:\n\nlap!=\"\" and ∃i∈[1..8]:(lapok[i]=lap)\n\nUf:\n\n∃i∈[1..8]:(lapok[i]=lap and ertek=ertekek[i])";
-    green(
-        spec,
-        &[
-            "lap: \"asz\"\nertek: 11",
-            "lap: also\nertek: 2",
-        ],
-    );
+    green(spec, &["lap: \"asz\"\nertek: 11", "lap: also\nertek: 2"]);
     // constants get their value from the declaration; repeating it is red, as online
-    let msg = red(spec, "lapok: [\"also\", \"felso\", \"kiraly\", \"VII\", \"VIII\", \"IX\", \"X\", \"asz\"]\nlap: \"asz\"\nertek: 11");
-    assert!(msg.contains("data cannot contain item with the same name: lapok"), "{msg}");
+    let msg = red(
+        spec,
+        "lapok: [\"also\", \"felso\", \"kiraly\", \"VII\", \"VIII\", \"IX\", \"X\", \"asz\"]\nlap: \"asz\"\nertek: 11",
+    );
+    assert!(
+        msg.contains("data cannot contain item with the same name: lapok"),
+        "{msg}"
+    );
 }
 
 #[test]
@@ -386,7 +386,10 @@ fn review_regressions() {
     let rel = "Be: n∈N, k∈N, ar∈N[1..n]\nKi: sorszam∈Z\nEf: -\nUf: (sorszam=-1 and ∀i∈[1..n]:(ar[i]>=k)) or ∃i∈[1..n]:(sorszam=i and ar[i]<k and ∀j∈[1..i-1]:(ar[j]>=k))";
     let s = parse(rel).unwrap();
     for (data, want) in [
-        ("n: 4\nk: 5000\nar: [6000, 3000, 1000, 200]\nsorszam: 2", "2"),
+        (
+            "n: 4\nk: 5000\nar: [6000, 3000, 1000, 200]\nsorszam: 2",
+            "2",
+        ),
         ("n: 2\nk: 1\nar: [5, 6]\nsorszam: -1", "-1"),
     ] {
         let o = run_test(&s, data);
@@ -568,34 +571,88 @@ fn stepper_trace() {
 #[test]
 fn online_editor_compat() {
     // accepted, as online
-    green("Be: n∈N\nKi: b∈L\nEf: igaz\nUf: b=(minden i eleme [1..n]:(i>0) és létezik j in [1..n]:(j=1) és nem hamis)", &["n: 2\nb: true"]);
-    green("In: a∈Z, b∈Z\nOut: c∈Z, d∈Z, e∈L, f∈N\nPre: -\nPost: c=a mod b and d=a div b and e=(a<>b and 2∤a) and f=3!", &["a: -7\nb: 2\nc: -1\nd: -4\ne: true\nf: 6"]);
-    green("In: a∈R\nOut: c∈Z, r∈R\nPre: -\nPost: c=round(a) and r=sqrt(4)+abs(a)", &["a: -2.5\nc: -2\nr: 4.5"]);
-    green("In: x∈N[0..]\nOut: c∈Z\nPre: -\nPost: c=tól(x)+ig(x)+hossz(x)", &["x: [1, 2]\nc: 3"]);
-    green("In: n∈N\nOut: s∈N\nFn: sq:N->N, sq(a)=a*a\nFv: dbl:N->N, dbl(a)=a*2\nDef: tr:N->N, tr(a)=a*3\nPre: -\nPost: s=sq(n)+dbl(n)+tr(n)", &["n: 3\ns: 24"]);
-    green("In: n∈N, x∈Z[1..n]\nOut: s∈Z, c∈N, y∈Z[]\nPre: -\nPost: s=SZUMMA(i=1..n, x[i]) and (c,y)=KIVÁLOGAT(i=1..n, x[i]>0)", &["n: 3\nx: [1, -2, 3]\ns: 2\nc: 2\ny: [1, 3]"]);
-    green("In: n∈N\nOut: c∈L, y∈N[0..]\nPre: -\nPost: c=([[1, 2], [3, 4]]=[1..,1..:[1, 2], [3, 4]]) and y=[0..:5, n]", &["n: 6\nc: true\ny: [5, 6]"]);
-    green("In: m∈Z[-1..1,-1..1]=[[2,1,2],[1,0,1],[2,1,1]], i∈Z\nOut: v∈Z\nPre: -\nPost: v=m[-1,-1]+i and m=m", &["i: 0\nv: 2"]);
+    green(
+        "Be: n∈N\nKi: b∈L\nEf: igaz\nUf: b=(minden i eleme [1..n]:(i>0) és létezik j in [1..n]:(j=1) és nem hamis)",
+        &["n: 2\nb: true"],
+    );
+    green(
+        "In: a∈Z, b∈Z\nOut: c∈Z, d∈Z, e∈L, f∈N\nPre: -\nPost: c=a mod b and d=a div b and e=(a<>b and 2∤a) and f=3!",
+        &["a: -7\nb: 2\nc: -1\nd: -4\ne: true\nf: 6"],
+    );
+    green(
+        "In: a∈R\nOut: c∈Z, r∈R\nPre: -\nPost: c=round(a) and r=sqrt(4)+abs(a)",
+        &["a: -2.5\nc: -2\nr: 4.5"],
+    );
+    green(
+        "In: x∈N[0..]\nOut: c∈Z\nPre: -\nPost: c=tól(x)+ig(x)+hossz(x)",
+        &["x: [1, 2]\nc: 3"],
+    );
+    green(
+        "In: n∈N\nOut: s∈N\nFn: sq:N->N, sq(a)=a*a\nFv: dbl:N->N, dbl(a)=a*2\nDef: tr:N->N, tr(a)=a*3\nPre: -\nPost: s=sq(n)+dbl(n)+tr(n)",
+        &["n: 3\ns: 24"],
+    );
+    green(
+        "In: n∈N, x∈Z[1..n]\nOut: s∈Z, c∈N, y∈Z[]\nPre: -\nPost: s=SZUMMA(i=1..n, x[i]) and (c,y)=KIVÁLOGAT(i=1..n, x[i]>0)",
+        &["n: 3\nx: [1, -2, 3]\ns: 2\nc: 2\ny: [1, 3]"],
+    );
+    green(
+        "In: n∈N\nOut: c∈L, y∈N[0..]\nPre: -\nPost: c=([[1, 2], [3, 4]]=[1..,1..:[1, 2], [3, 4]]) and y=[0..:5, n]",
+        &["n: 6\nc: true\ny: [5, 6]"],
+    );
+    green(
+        "In: m∈Z[-1..1,-1..1]=[[2,1,2],[1,0,1],[2,1,1]], i∈Z\nOut: v∈Z\nPre: -\nPost: v=m[-1,-1]+i and m=m",
+        &["i: 0\nv: 2"],
+    );
     // rejected, as online
     for (spec, why) in [
         ("In: n∈N\nOut: b∈L\nPre: -\nPost: b=(n>0 → n>1)", "`→`"),
-        ("In: n∈N\nOut: d∈N\nPre: n≥2\nPost: d=SELECT(i≥2, i|n)", "Expected `>=` but found `≥`"),
-        ("In: n∈N\nOut: s∈N\nFn: sq:N->N, sq(a)=a*a,\n    dbl:N->N, dbl(a)=a*2\nPre: -\nPost: s=sq(n)+dbl(n)", "Only one function per"),
-        ("In: n∈N\nOut: s∈N\nFn: d(a)=a*2\nPre: -\nPost: s=d(n)", "has no signature"),
-        ("In: a∈Z\nOut: c∈N\nPre: -\nPost: c=ABS(a)", "Unknown function `ABS`"),
+        (
+            "In: n∈N\nOut: d∈N\nPre: n≥2\nPost: d=SELECT(i≥2, i|n)",
+            "Expected `>=` but found `≥`",
+        ),
+        (
+            "In: n∈N\nOut: s∈N\nFn: sq:N->N, sq(a)=a*a,\n    dbl:N->N, dbl(a)=a*2\nPre: -\nPost: s=sq(n)+dbl(n)",
+            "Only one function per",
+        ),
+        (
+            "In: n∈N\nOut: s∈N\nFn: d(a)=a*2\nPre: -\nPost: s=d(n)",
+            "has no signature",
+        ),
+        (
+            "In: a∈Z\nOut: c∈N\nPre: -\nPost: c=ABS(a)",
+            "Unknown function `ABS`",
+        ),
         ("In: a element N\nOut: c∈N\nPre: -\nPost: c=a", "`element`"),
-        ("In: n∈N\nOut: m∈N\nPre: m>0\nPost: m=n*2", "Output `m` is used in the precondition"),
-        ("In: n∈N\nOut: s∈N, t∈N\nPre: -\nPost: s=n", "Output `t` is never used"),
+        (
+            "In: n∈N\nOut: m∈N\nPre: m>0\nPost: m=n*2",
+            "Output `m` is used in the precondition",
+        ),
+        (
+            "In: n∈N\nOut: s∈N, t∈N\nPre: -\nPost: s=n",
+            "Output `t` is never used",
+        ),
         ("In: a∈L, b∈L\nOut: c∈L\nPre: -\nPost: c=(a ∧ b)", "`∧`"),
     ] {
         let m = spec_err(spec);
         assert!(m.contains(why), "{spec}\n{m}");
     }
     // test data judged as online
-    let m = red("In: n∈N, x∈Z[1..n]\nAux: f∈L, ind∈N\nOut: r∈Z\nPre: -\nPost: (f,ind)=SEARCH(i=1..n, x[i]<0) and (f -> r=ind) and (not f -> r=-1)", "n: 1\nx: [5]\nf: false\nr: -1");
+    let m = red(
+        "In: n∈N, x∈Z[1..n]\nAux: f∈L, ind∈N\nOut: r∈Z\nPre: -\nPost: (f,ind)=SEARCH(i=1..n, x[i]<0) and (f -> r=ind) and (not f -> r=-1)",
+        "n: 1\nx: [5]\nf: false\nr: -1",
+    );
     assert!(m.contains("`ind` is missing"), "{m}");
-    let m = red("In: d∈N[1..3]=[1,2,3], m∈[1..3]\nOut: x∈N\nPre: -\nPost: x=d[m]", "d: [1,2,3]\nm: 2\nx: 2");
-    assert!(m.contains("data cannot contain item with the same name: d"), "{m}");
-    let m = red("In: n∈N\nOut: c∈L\nPre: -\nPost: c=([0..:5, 6]=[5, 6]) and n=n", "n: 1\nc: false");
+    let m = red(
+        "In: d∈N[1..3]=[1,2,3], m∈[1..3]\nOut: x∈N\nPre: -\nPost: x=d[m]",
+        "d: [1,2,3]\nm: 2\nx: 2",
+    );
+    assert!(
+        m.contains("data cannot contain item with the same name: d"),
+        "{m}"
+    );
+    let m = red(
+        "In: n∈N\nOut: c∈L\nPre: -\nPost: c=([0..:5, 6]=[5, 6]) and n=n",
+        "n: 1\nc: false",
+    );
     assert!(m.contains("same index range"), "{m}");
 }

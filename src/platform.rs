@@ -3,27 +3,22 @@
 
 use eframe::egui;
 use eframe::egui::epaint::MarginF32;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Phones and tablets: no native file dialogs, touch input, an on-screen keyboard.
 pub const MOBILE: bool = cfg!(target_os = "android");
 
-/// How shortcuts are spelled in tooltips: `⌘S` on macOS, `Ctrl+S` elsewhere.
+/// How shortcuts are spelled in tooltips: `Cmd+S` on macOS, `Ctrl+S` elsewhere.
 pub fn shortcut(keys: &str) -> String {
-    if cfg!(target_os = "macos") {
-        keys.replace("Ctrl+Shift+", "⇧⌘")
-            .replace("Ctrl+", "⌘")
-            .replace("Alt+", "⌥")
+    spell_shortcut(keys, cfg!(target_os = "macos"))
+}
+
+fn spell_shortcut(keys: &str, mac: bool) -> String {
+    if mac {
+        keys.replace("Ctrl+", "Cmd+").replace("Alt+", "Option+")
     } else {
         keys.to_owned()
     }
-}
-
-/// Put `text` on the system clipboard.
-pub fn copy(ctx: &egui::Context, text: String) {
-    #[cfg(target_os = "android")]
-    android::set_clipboard(&text);
-    ctx.copy_text(text);
 }
 
 /// Read the system clipboard. `None` if it can't be read (or is empty).
@@ -57,6 +52,33 @@ impl FileKind {
             FileKind::Stuki => "st",
             FileKind::Png => "png",
         }
+    }
+
+    pub fn of(path: &Path) -> FileKind {
+        let is = |kind: FileKind| {
+            path.extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case(kind.ext()))
+        };
+        if is(FileKind::Stuki) {
+            FileKind::Stuki
+        } else if is(FileKind::Png) {
+            FileKind::Png
+        } else {
+            FileKind::Spec
+        }
+    }
+
+    pub fn with_ext(self, mut path: PathBuf) -> PathBuf {
+        let has = path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case(self.ext()));
+        if !has && let Some(name) = path.file_name() {
+            let mut name = name.to_os_string();
+            name.push(".");
+            name.push(self.ext());
+            path.set_file_name(name);
+        }
+        path
     }
 
     #[cfg(not(target_os = "android"))]
@@ -122,13 +144,13 @@ pub fn insets(ctx: &egui::Context) -> MarginF32 {
 
 #[cfg(target_os = "android")]
 pub mod android {
+    use super::MarginF32;
     use eframe::egui;
     use jni::objects::{JObject, JString};
     use jni::{Env, JValue, JavaVM, jni_sig, jni_str};
     use std::path::PathBuf;
     use std::sync::OnceLock;
     pub use winit::platform::android::activity::AndroidApp;
-    use super::MarginF32;
     use winit::platform::android::activity::Rect;
 
     static APP: OnceLock<AndroidApp> = OnceLock::new();
@@ -181,10 +203,20 @@ pub mod android {
     fn visible_frame() -> Option<Rect> {
         with_activity(|env, activity| {
             let window = env
-                .call_method(activity, jni_str!("getWindow"), jni_sig!("()Landroid/view/Window;"), &[])?
+                .call_method(
+                    activity,
+                    jni_str!("getWindow"),
+                    jni_sig!("()Landroid/view/Window;"),
+                    &[],
+                )?
                 .l()?;
             let decor = env
-                .call_method(&window, jni_str!("getDecorView"), jni_sig!("()Landroid/view/View;"), &[])?
+                .call_method(
+                    &window,
+                    jni_str!("getDecorView"),
+                    jni_sig!("()Landroid/view/View;"),
+                    &[],
+                )?
                 .l()?;
             let rect = env.new_object(jni_str!("android/graphics/Rect"), jni_sig!("()V"), &[])?;
             env.call_method(
@@ -311,5 +343,93 @@ pub mod android {
         })
         .flatten()
         .filter(|s| !s.is_empty())
+    }
+}
+
+pub fn write_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let Some(name) = target.file_name() else {
+        return std::fs::write(path, contents);
+    };
+    let mut temp_name = std::ffi::OsString::from(".");
+    temp_name.push(name);
+    temp_name.push(format!(".{}.tmp", std::process::id()));
+    let temp = target.with_file_name(temp_name);
+    let written = std::fs::File::create(&temp).and_then(|mut f| {
+        f.write_all(contents)?;
+        f.sync_all()
+    });
+    if written.is_ok() {
+        if let Ok(old) = std::fs::metadata(&target) {
+            let _ = std::fs::set_permissions(&temp, old.permissions());
+        }
+        if std::fs::rename(&temp, &target).is_ok() {
+            return Ok(());
+        }
+    }
+    let _ = std::fs::remove_file(&temp);
+    std::fs::write(&target, contents)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_kinds_and_extensions() {
+        assert_eq!(FileKind::of(Path::new("a/b.ST")), FileKind::Stuki);
+        assert_eq!(FileKind::of(Path::new("b.png")), FileKind::Png);
+        assert_eq!(FileKind::of(Path::new("b.sp")), FileKind::Spec);
+        assert_eq!(FileKind::of(Path::new("notes.txt")), FileKind::Spec);
+        let ext = |k: FileKind, p: &str| k.with_ext(PathBuf::from(p));
+        assert_eq!(
+            ext(FileKind::Spec, "dir/task"),
+            PathBuf::from("dir/task.sp")
+        );
+        assert_eq!(
+            ext(FileKind::Spec, "dir/task.SP"),
+            PathBuf::from("dir/task.SP")
+        );
+        assert_eq!(ext(FileKind::Stuki, "v1.2"), PathBuf::from("v1.2.st"));
+        assert_eq!(ext(FileKind::Png, "pic.st"), PathBuf::from("pic.st.png"));
+    }
+
+    #[test]
+    fn files_are_replaced_whole() {
+        let dir = std::env::temp_dir().join(format!("speci-local-write-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("task.sp");
+        write_file(&file, b"first").unwrap();
+        assert_eq!(std::fs::read(&file).unwrap(), b"first");
+        write_file(&file, b"second, longer").unwrap();
+        write_file(&file, b"3").unwrap();
+        assert_eq!(std::fs::read(&file).unwrap(), b"3");
+        let names: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["task.sp"]);
+        #[cfg(unix)]
+        {
+            let link = dir.join("link.sp");
+            std::os::unix::fs::symlink(&file, &link).unwrap();
+            write_file(&link, b"through the link").unwrap();
+            assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
+            assert_eq!(std::fs::read(&file).unwrap(), b"through the link");
+        }
+        assert!(write_file(&dir.join("missing/task.sp"), b"x").is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn shortcuts_are_spelled_per_platform() {
+        let tip = "Save (Ctrl+S)\nSave as… (Ctrl+Shift+S), insert ∈ (Alt+1)";
+        assert_eq!(spell_shortcut(tip, false), tip);
+        assert_eq!(
+            spell_shortcut(tip, true),
+            "Save (Cmd+S)\nSave as… (Cmd+Shift+S), insert ∈ (Option+1)"
+        );
     }
 }

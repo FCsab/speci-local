@@ -6,7 +6,6 @@
 
 use super::rich::Rich;
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value, json};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -170,6 +169,18 @@ impl Diagram {
 impl Default for Diagram {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Kind {
+    pub fn tag(&self) -> Tag {
+        match self {
+            Kind::Noop | Kind::Statement(_) => Tag::Statement,
+            Kind::If { .. } => Tag::If,
+            Kind::While { .. } => Tag::While,
+            Kind::Repeat { .. } => Tag::Repeat,
+            Kind::Switch { .. } => Tag::Switch,
+        }
     }
 }
 
@@ -520,382 +531,31 @@ impl Program {
     pub fn content(&self) -> String {
         serde_json::to_string(self).unwrap_or_default()
     }
-}
 
-// ---------------------------------------------------------------- web app format
-
-/// The web Stuki's state: `{ nodes: {id: node}, structograms: [...], colors: {...} }`.
-pub fn to_json(p: &Program) -> Value {
-    struct W {
-        nodes: Map<String, Value>,
-        n: usize,
-    }
-    impl W {
-        fn id(&mut self) -> String {
-            self.n += 1;
-            format!("n{:07}", self.n)
-        }
-        fn seq(&mut self, seq: &[Node], parent: Option<&str>) -> String {
-            let id = self.id();
-            let children: Vec<Value> = seq.iter().map(|n| Value::from(self.node(n, &id))).collect();
-            self.nodes.insert(
-                id.clone(),
-                json!({"id": id, "parentId": parent, "hidden": false, "type": "sequence", "childrenIds": children}),
-            );
-            id
-        }
-        fn node(&mut self, n: &Node, parent: &str) -> String {
-            let id = self.id();
-            let mut v = match &n.kind {
-                Kind::Noop => json!({"type": "noop"}),
-                Kind::Statement(t) => json!({"type": "statement", "text": t.to_html()}),
-                Kind::If { cond, yes, no } => json!({
-                    "type": "if",
-                    "condition": cond.to_html(),
-                    "trueBranchSequenceId": self.seq(yes, Some(&id)),
-                    "falseBranchSequenceId": self.seq(no, Some(&id)),
-                }),
-                Kind::While { cond, body } => json!({
-                    "type": "while", "condition": cond.to_html(), "bodySequenceId": self.seq(body, Some(&id)),
-                }),
-                Kind::Repeat { cond, body } => json!({
-                    "type": "repeat", "condition": cond.to_html(), "bodySequenceId": self.seq(body, Some(&id)),
-                }),
-                Kind::Switch { cases } => {
-                    let cases: Vec<Value> = cases
-                        .iter()
-                        .map(|c| {
-                            let cid = self.id();
-                            let body = self.seq(&c.body, Some(&id));
-                            match &c.cond {
-                                Some(t) => json!({"id": cid, "type": "case", "condition": t.to_html(), "bodySequenceId": body}),
-                                None => json!({"id": cid, "type": "default", "bodySequenceId": body}),
-                            }
-                        })
-                        .collect();
-                    json!({"type": "switch", "cases": cases})
-                }
-            };
-            let o = v.as_object_mut().unwrap();
-            o.insert("id".into(), id.clone().into());
-            o.insert("parentId".into(), parent.into());
-            o.insert("hidden".into(), false.into());
-            if let Some(bg) = &n.bg {
-                o.insert("backgroundColor".into(), bg.clone().into());
+    pub fn content_is(&self, text: &str) -> bool {
+        struct Expect<'a>(&'a [u8]);
+        impl std::io::Write for Expect<'_> {
+            fn write(&mut self, part: &[u8]) -> std::io::Result<usize> {
+                self.0 = self
+                    .0
+                    .strip_prefix(part)
+                    .ok_or(std::io::ErrorKind::InvalidData)?;
+                Ok(part.len())
             }
-            self.nodes.insert(id.clone(), v);
-            id
-        }
-    }
-    let mut w = W {
-        nodes: Map::new(),
-        n: 0,
-    };
-    let structograms: Vec<Value> = p
-        .diagrams
-        .iter()
-        .map(|d| {
-            let root = w.seq(&d.body, None);
-            let mut v = json!({
-                "name": d.name.to_html(),
-                "returnText": d.ret.to_html(),
-                "variables": d.variables.to_html(),
-                "rootId": root,
-                "showHeader": d.show_header,
-                "showVariables": d.show_variables,
-                "showReturnText": d.show_return,
-            });
-            if let Some(bg) = &d.bg {
-                v.as_object_mut()
-                    .unwrap()
-                    .insert("backgroundColor".into(), bg.clone().into());
-            }
-            v
-        })
-        .collect();
-    let c = &p.colors;
-    json!({
-        "id": "0",
-        "hoverId": null,
-        "selectedId": null,
-        "nodes": w.nodes,
-        "structograms": structograms,
-        "colors": {
-            "text": c.text,
-            "textBackground": c.text_background,
-            "nodeBackground": c.node_background,
-            "structogramBackground": c.structogram_background,
-        },
-    })
-}
-
-/// Read the web Stuki's state (from a `.st` file, a copied project or a `?data=` link).
-pub fn from_json(v: &Value) -> Result<Program, String> {
-    let nodes = v
-        .get("nodes")
-        .and_then(Value::as_object)
-        .ok_or("not a structogram: the \"nodes\" list is missing")?;
-    let structograms = v
-        .get("structograms")
-        .and_then(Value::as_array)
-        .ok_or("not a structogram: the \"structograms\" list is missing")?;
-    let text = |o: &Value, k: &str| Rich::from_html(o.get(k).and_then(Value::as_str).unwrap_or(""));
-    let flag = |o: &Value, k: &str, d: bool| o.get(k).and_then(Value::as_bool).unwrap_or(d);
-    let color = |o: &Value| {
-        o.get("backgroundColor")
-            .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-    };
-
-    fn seq(
-        nodes: &Map<String, Value>,
-        id: Option<&str>,
-        depth: usize,
-    ) -> Result<Vec<Node>, String> {
-        if depth > 200 {
-            return Err("the structogram is nested too deeply (or is damaged)".into());
-        }
-        let mut out = Vec::new();
-        let s = id.and_then(|id| nodes.get(id));
-        let children = s
-            .and_then(|s| s.get("childrenIds"))
-            .and_then(Value::as_array);
-        for c in children.into_iter().flatten() {
-            let Some(n) = c.as_str().and_then(|c| nodes.get(c)) else {
-                continue;
-            };
-            if let Some(n) = node(nodes, n, depth + 1)? {
-                out.push(n);
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
             }
         }
-        if out.is_empty() {
-            out.push(Node::noop());
-        }
-        Ok(out)
+        let mut rest = Expect(text.as_bytes());
+        serde_json::to_writer(&mut rest, self).is_ok() && rest.0.is_empty()
     }
-    fn node(nodes: &Map<String, Value>, n: &Value, depth: usize) -> Result<Option<Node>, String> {
-        let t = |k: &str| Rich::from_html(n.get(k).and_then(Value::as_str).unwrap_or(""));
-        let sub = |k: &str| seq(nodes, n.get(k).and_then(Value::as_str), depth);
-        let kind = match n.get("type").and_then(Value::as_str).unwrap_or("") {
-            "noop" => Kind::Noop,
-            "statement" => Kind::Statement(t("text")),
-            "if" => Kind::If {
-                cond: t("condition"),
-                yes: sub("trueBranchSequenceId")?,
-                no: sub("falseBranchSequenceId")?,
-            },
-            "while" => Kind::While {
-                cond: t("condition"),
-                body: sub("bodySequenceId")?,
-            },
-            "repeat" => Kind::Repeat {
-                cond: t("condition"),
-                body: sub("bodySequenceId")?,
-            },
-            "switch" => {
-                let mut cases = Vec::new();
-                for c in n
-                    .get("cases")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                {
-                    let default = c.get("type").and_then(Value::as_str) == Some("default");
-                    cases.push(Case {
-                        id: fresh_id(),
-                        cond: (!default).then(|| {
-                            Rich::from_html(
-                                c.get("condition").and_then(Value::as_str).unwrap_or(""),
-                            )
-                        }),
-                        body: seq(
-                            nodes,
-                            c.get("bodySequenceId").and_then(Value::as_str),
-                            depth,
-                        )?,
-                    });
-                }
-                // the default case belongs at the end
-                cases.sort_by_key(|c| c.cond.is_none());
-                if cases.is_empty() {
-                    return Ok(None);
-                }
-                Kind::Switch { cases }
-            }
-            _ => return Ok(None), // drag & drop placeholders and anything unknown
-        };
-        let bg = n
-            .get("backgroundColor")
-            .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())
-            .map(str::to_string);
-        Ok(Some(Node {
-            id: fresh_id(),
-            bg,
-            kind,
-        }))
-    }
-
-    let mut diagrams = Vec::new();
-    for s in structograms {
-        diagrams.push(Diagram {
-            id: fresh_id(),
-            name: text(s, "name"),
-            variables: text(s, "variables"),
-            ret: text(s, "returnText"),
-            show_header: flag(s, "showHeader", false),
-            show_variables: flag(s, "showVariables", false),
-            show_return: flag(s, "showReturnText", true),
-            bg: color(s),
-            body: seq(nodes, s.get("rootId").and_then(Value::as_str), 0)?,
-        });
-    }
-    let mut colors = Palettes::default();
-    if let Some(c) = v.get("colors") {
-        let list = |k: &str, into: &mut Vec<String>| {
-            if let Some(a) = c.get(k).and_then(Value::as_array) {
-                *into = a
-                    .iter()
-                    .filter_map(|x| x.as_str().map(str::to_string))
-                    .collect();
-            }
-        };
-        list("text", &mut colors.text);
-        list("textBackground", &mut colors.text_background);
-        list("nodeBackground", &mut colors.node_background);
-        list("structogramBackground", &mut colors.structogram_background);
-    }
-    Ok(Program { diagrams, colors })
-}
-
-// ---------------------------------------------------------------- files and the clipboard
-
-/// `.st` file: the web app's state as pretty-printed JSON.
-pub fn to_st(p: &Program) -> String {
-    let mut s = serde_json::to_string_pretty(&to_json(p)).unwrap_or_default();
-    s.push('\n');
-    s
-}
-
-pub fn from_st(text: &str) -> Result<Program, String> {
-    let text = text.trim_start_matches('\u{feff}');
-    let v: Value =
-        serde_json::from_str(text).map_err(|e| format!("not a structogram file: {e}"))?;
-    from_json(&v)
-}
-
-/// Prefix of the compact clipboard form.
-pub const COMPACT_PREFIX: &str = "STUKI1:";
-
-/// The whole project as one line: `STUKI1:` + base64url(deflate(JSON)).
-pub fn to_compact(p: &Program) -> String {
-    let json = serde_json::to_string(&to_json(p)).unwrap_or_default();
-    let packed = miniz_oxide::deflate::compress_to_vec(json.as_bytes(), 9);
-    format!("{COMPACT_PREFIX}{}", crate::file::b64_encode(&packed))
-}
-
-/// Does this clipboard text hold a structogram (rather than a specification)?
-pub fn looks_like_stuki(text: &str) -> bool {
-    let t = text.trim();
-    t.starts_with(COMPACT_PREFIX)
-        || (t.starts_with('{') && t.contains("\"structograms\""))
-        || (t.contains("/stuki") && (t.contains("data=") || t.contains("uuid=")))
-}
-
-/// Read a structogram from clipboard text: the compact form, `.st` JSON, or a web app link
-/// (`https://progalap.elte.hu/stuki/v1/?data=…`).
-pub fn from_clipboard(text: &str) -> Result<Program, String> {
-    let t = text.trim();
-    if let Some(rest) = t.strip_prefix(COMPACT_PREFIX) {
-        let rest: String = rest.chars().filter(|c| !c.is_whitespace()).collect();
-        let packed = crate::file::b64_decode(&rest).ok_or(
-            "The text after STUKI1: is damaged (not valid base64). Was it copied completely?",
-        )?;
-        let raw = miniz_oxide::inflate::decompress_to_vec_with_limit(&packed, 16 << 20).map_err(
-            |_| {
-                "The copied structogram is damaged or incomplete. Copy it again from the source."
-                    .to_string()
-            },
-        )?;
-        let json = String::from_utf8(raw)
-            .map_err(|_| "The copied structogram is not valid text.".to_string())?;
-        return from_st(&json);
-    }
-    if t.starts_with('{') {
-        return from_st(t);
-    }
-    if let Some(i) = t.find("data=") {
-        let raw = &t[i + 5..];
-        let raw = &raw[..raw.find(['&', '#']).unwrap_or(raw.len())];
-        let b64: String = percent_decode(raw)
-            .chars()
-            .filter(|c| !c.is_whitespace())
-            .collect();
-        let gz = crate::file::b64_decode(&b64)
-            .ok_or("The link's data is damaged (not valid base64).")?;
-        let json = gunzip(&gz).ok_or("The link's data is damaged (not valid gzip).")?;
-        let json = String::from_utf8(json)
-            .map_err(|_| "The link's data is not valid text.".to_string())?;
-        return from_st(&json);
-    }
-    if t.contains("uuid=") {
-        return Err("This link points to a structogram saved on the university server, which can't be reached offline. Open it in the web app and use its Share button (a link with data=), or copy the structogram there.".into());
-    }
-    if t.is_empty() {
-        Err("The clipboard is empty.".into())
-    } else {
-        Err("The clipboard doesn't contain a structogram: expected text starting with STUKI1:, a .st file's contents, or a Stuki link with data=.".into())
-    }
-}
-
-fn percent_decode(s: &str) -> String {
-    let b = s.as_bytes();
-    let mut out = Vec::with_capacity(b.len());
-    let mut i = 0;
-    while i < b.len() {
-        if b[i] == b'%'
-            && i + 2 < b.len()
-            && let Ok(v) =
-                u8::from_str_radix(std::str::from_utf8(&b[i + 1..i + 3]).unwrap_or("zz"), 16)
-        {
-            out.push(v);
-            i += 3;
-        } else {
-            out.push(b[i]);
-            i += 1;
-        }
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
-/// gzip (what the browser's CompressionStream makes) → raw deflate → bytes.
-fn gunzip(d: &[u8]) -> Option<Vec<u8>> {
-    if d.len() < 18 || d[0] != 0x1f || d[1] != 0x8b || d[2] != 8 {
-        return None;
-    }
-    let flags = d[3];
-    let mut i = 10;
-    if flags & 4 != 0 {
-        let n = u16::from_le_bytes([*d.get(i)?, *d.get(i + 1)?]) as usize;
-        i += 2 + n;
-    }
-    for bit in [8u8, 16] {
-        if flags & bit != 0 {
-            i += d.get(i..)?.iter().position(|&c| c == 0)? + 1;
-        }
-    }
-    if flags & 2 != 0 {
-        i += 2;
-    }
-    miniz_oxide::inflate::decompress_to_vec_with_limit(d.get(i..)?, 16 << 20).ok()
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
 
-    fn sample() -> Program {
+    pub(crate) fn sample() -> Program {
         let mut p = Program::default();
         let d = &mut p.diagrams[0];
         d.show_header = true;
@@ -916,12 +576,18 @@ mod tests {
     }
 
     #[test]
-    fn json_round_trip() {
-        let p = sample();
-        let back = from_st(&to_st(&p)).unwrap();
-        assert_eq!(back.content(), p.content());
-        let back = from_clipboard(&to_compact(&p)).unwrap();
-        assert_eq!(back.content(), p.content());
+    fn content_is_compared_without_building_it() {
+        let mut p = sample();
+        let saved = p.content();
+        assert!(p.content_is(&saved));
+        assert!(!p.content_is(&saved[..saved.len() - 1]));
+        assert!(!p.content_is(&format!("{saved} ")));
+        assert!(!p.content_is(""));
+        p.diagrams[0].variables = Rich::plain("j:Egész");
+        assert!(!p.content_is(&saved));
+        assert!(p.content_is(&p.content()));
+        let copy: Program = serde_json::from_str(&saved).unwrap();
+        assert!(copy.content_is(&saved));
     }
 
     #[test]
@@ -950,54 +616,5 @@ mod tests {
             p.remove(id);
         }
         assert!(p.diagrams[0].body.len() == 1 && p.diagrams[0].body[0].is_noop());
-    }
-
-    #[test]
-    fn reads_web_app_state_and_links() {
-        let web = r##"{"id":"0.1","hoverId":null,"selectedId":"x","nodes":{
-            "r":{"id":"r","parentId":null,"hidden":false,"type":"sequence","childrenIds":["a","p","b"]},
-            "a":{"id":"a","parentId":"r","hidden":false,"type":"statement","text":"x:=<span style=\"color: rgb(255, 0, 0);\">1</span>"},
-            "p":{"id":"p","parentId":"r","hidden":false,"type":"placeholder"},
-            "b":{"id":"b","parentId":"r","hidden":false,"type":"if","condition":"x&gt;0","trueBranchSequenceId":"t","falseBranchSequenceId":"f","backgroundColor":"#ccccff"},
-            "t":{"id":"t","parentId":"b","hidden":false,"type":"sequence","childrenIds":[]},
-            "f":{"id":"f","parentId":"b","hidden":false,"type":"sequence","childrenIds":["n"]},
-            "n":{"id":"n","parentId":"f","hidden":false,"type":"noop"}},
-            "structograms":[{"name":"Main","returnText":"","variables":"","rootId":"r","showVariables":false,"showHeader":false,"showReturnText":true}],
-            "colors":{"text":["#123456"],"textBackground":[],"nodeBackground":[],"structogramBackground":[]}}"##;
-        let p = from_clipboard(web).unwrap();
-        let body = &p.diagrams[0].body;
-        assert_eq!(body.len(), 2);
-        match &body[0].kind {
-            Kind::Statement(t) => {
-                assert_eq!(t.text, "x:=1");
-                assert_eq!(t.styles[3].color, Some(0xff0000));
-            }
-            _ => panic!(),
-        }
-        match &body[1].kind {
-            Kind::If { cond, yes, .. } => {
-                assert_eq!(cond.text, "x>0");
-                assert!(yes[0].is_noop());
-            }
-            _ => panic!(),
-        }
-        assert_eq!(p.colors.text, vec!["#123456"]);
-        // the web app's Share link: gzip + standard base64, URL-encoded
-        let gz = {
-            let deflated = miniz_oxide::deflate::compress_to_vec(web.as_bytes(), 6);
-            let mut g = vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 3];
-            g.extend(deflated);
-            g.extend([0u8; 8]);
-            g
-        };
-        let b64 = crate::file::b64_encode(&gz)
-            .replace('-', "%2B")
-            .replace('_', "%2F");
-        let link = format!("https://progalap.elte.hu/stuki/v1/?data={b64}");
-        assert!(looks_like_stuki(&link));
-        let q = from_clipboard(&link).unwrap();
-        assert_eq!(q.content(), p.content());
-        assert!(from_clipboard("https://progalap.elte.hu/stuki/v1/?uuid=1234").is_err());
-        assert!(from_clipboard("STUKI1:@@").is_err());
     }
 }
