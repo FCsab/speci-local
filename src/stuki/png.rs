@@ -34,8 +34,8 @@ pub fn render(
         let y = ((v * atlas.size[1] as f32) as usize).min(atlas.size[1] - 1);
         rgba(atlas.pixels[y * atlas.size[0] + x])
     };
-    for t in mesh.indices.chunks_exact(3) {
-        let v = [t[0], t[1], t[2]].map(|i| &mesh.vertices[i as usize]);
+    for t in mesh.indices.as_chunks::<3>().0 {
+        let v = t.map(|i| &mesh.vertices[i as usize]);
         let p = v.map(|v| [v.pos.x * ppp, v.pos.y * ppp]);
         let area =
             (p[1][0] - p[0][0]) * (p[2][1] - p[0][1]) - (p[2][0] - p[0][0]) * (p[1][1] - p[0][1]);
