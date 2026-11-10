@@ -400,6 +400,9 @@ impl App {
             .show(ui, |ui| self.status_bar(ui));
         if self.tool == Tool::Stuki {
             self.stuki.show(ui);
+            if std::mem::take(&mut self.stuki.wants_spec) {
+                self.stuki_from_spec();
+            }
             return;
         }
         let pane = egui::Frame::new()

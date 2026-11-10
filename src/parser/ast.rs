@@ -110,6 +110,9 @@ pub struct Decl {
 #[derive(Clone, Debug)]
 pub struct Func {
     pub params: Vec<String>,
+    /// The signature's types: domain (one per parameter, when written that way) and codomain.
+    pub dom: Vec<Type>,
+    pub cod: Vec<Type>,
     pub body: Expr,
 }
 

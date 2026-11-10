@@ -390,11 +390,12 @@ impl<'a> Parser<'a> {
         found
     }
 
-    fn type_product(&mut self) -> PResult<()> {
+    fn type_product(&mut self) -> PResult<Vec<Type>> {
+        let mut types = Vec::new();
         loop {
-            self.ty()?;
+            types.push(self.ty()?);
             if !self.eat_product() {
-                return Ok(());
+                return Ok(types);
             }
         }
     }
@@ -415,12 +416,12 @@ impl<'a> Parser<'a> {
         }
         self.expect(":", &format!("`:` and the signature (like `{name}:N->N`)"))?;
         // signature: types joined by x, ->, types joined by x
-        self.type_product()?;
+        let dom = self.type_product()?;
         self.expect(
             "->",
             &format!("`->` between the domain and the codomain (like `{name}:N->L`)"),
         )?;
-        self.type_product()?;
+        let cod = self.type_product()?;
         if !self.eat(",") {
             return Err(self.unexpected(&format!("`,` and the definition (like `, {name}(i)=…`)")));
         }
@@ -469,7 +470,15 @@ impl<'a> Parser<'a> {
                 .err_at(t.start, format!("`{name}` is defined twice"))
                 .hint("Keep only one definition."));
         }
-        funcs.insert(name, Func { params, body });
+        funcs.insert(
+            name,
+            Func {
+                params,
+                dom,
+                cod,
+                body,
+            },
+        );
         Ok(())
     }
 }

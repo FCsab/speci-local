@@ -175,6 +175,32 @@ impl App {
         }
     }
 
+    /// Auto Stuki: structograms built from the specification replace the current ones.
+    pub(super) fn stuki_from_spec(&mut self) {
+        let spec = match crate::parser::parse(&self.doc.spec) {
+            Ok(s) => s,
+            Err(d) => {
+                let at = match d.first() {
+                    Some(d) if d.line > 0 => format!(" (line {}: {})", d.line, d.title),
+                    Some(d) => format!(" ({})", d.title),
+                    None => String::new(),
+                };
+                self.stuki.status =
+                    format!("Fix the specification on the Specification tab first{at}");
+                return;
+            }
+        };
+        let g = stuki::from_spec::from_spec(&spec, &self.doc.title);
+        let mut message = "Structograms built from the specification".to_string();
+        if g.untranslated > 0 {
+            message += &format!(
+                "; {} part(s) of the postcondition couldn't be turned into steps (tinted red)",
+                g.untranslated
+            );
+        }
+        self.stuki.request(Pending::FromSpec(g.program, message));
+    }
+
     /// Read a copied project: a structogram goes to the Stuki tab, a specification to the other.
     pub(super) fn import_text(&mut self, text: &str) {
         if stuki::format::looks_like_stuki(text) {

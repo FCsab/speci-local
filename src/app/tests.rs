@@ -361,3 +361,38 @@ fn deleting_a_test_keeps_results_aligned() {
         assert_eq!(app.doc.tests, ["a"]);
     }
 }
+
+/// Auto Stuki: the button on the Stuki tab builds the structograms from the specification
+/// (the sample counts odd numbers), and a broken specification leaves them alone.
+#[test]
+fn auto_stuki_builds_structograms_from_the_spec() {
+    use crate::stuki::model::Kind;
+    use crate::ui::I_WAND;
+    let mut h = Harness::builder()
+        .with_size([1360.0, 900.0])
+        .build_eframe(|cc| {
+            let mut a = create(cc, None);
+            a.doc = sample();
+            a.tool = Tool::Stuki;
+            a.stuki = Stuki::default();
+            a
+        });
+    h.run_steps(4);
+    h.get_by_label(&format!("{I_WAND}  Auto Stuki")).click();
+    h.run_steps(4);
+    let st = &h.state().stuki;
+    assert_eq!(st.program.diagrams.len(), 1, "{}", st.status);
+    let d = &st.program.diagrams[0];
+    assert_eq!(d.name.text, "Páratlan számok");
+    assert_eq!(d.variables.text, "i:Egész");
+    assert!(matches!(&d.body[0].kind, Kind::Statement(t) if t.text == "db:=0"));
+    assert!(matches!(&d.body[1].kind, Kind::While { cond, .. } if cond.text == "i=1..n"));
+    assert!(st.dirty() && st.path.is_none());
+
+    // a broken specification changes nothing
+    h.state_mut().doc.spec = "Be:\nn∈N\nKi:\nUf:\n".into();
+    h.get_by_label(&format!("{I_WAND}  Auto Stuki")).click();
+    h.run_steps(4);
+    assert!(h.state().stuki.status.starts_with("Fix the specification"));
+    assert_eq!(h.state().stuki.program.diagrams[0].body.len(), 2);
+}

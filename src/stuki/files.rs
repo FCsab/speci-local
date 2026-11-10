@@ -39,6 +39,10 @@ impl Stuki {
                 self.status =
                     "Structogram read from the clipboard (not saved to a file yet)".into();
             }
+            Pending::FromSpec(p, message) => {
+                self.reset(p, None, false);
+                self.status = message;
+            }
         }
     }
 

@@ -11,6 +11,7 @@ mod colors;
 mod export;
 mod files;
 pub mod format;
+pub mod from_spec;
 pub mod layout;
 mod menu;
 pub mod model;
@@ -37,6 +38,8 @@ pub enum Pending {
     Open,
     Load(PathBuf),
     Import(Program),
+    /// Built from the specification (Auto Stuki), with the message for the status bar.
+    FromSpec(Program, String),
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -131,6 +134,9 @@ pub struct Stuki {
     /// What to do once the Android "Save as" list has saved the file.
     #[serde(skip)]
     pub after_save: Option<Pending>,
+    /// Auto Stuki was pressed: the app builds the structograms from its specification.
+    #[serde(skip)]
+    pub wants_spec: bool,
 }
 
 impl Default for Stuki {
@@ -159,6 +165,7 @@ impl Default for Stuki {
             seen: Default::default(),
             file_request: None,
             after_save: None,
+            wants_spec: false,
         }
     }
 }
