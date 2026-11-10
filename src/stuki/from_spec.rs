@@ -26,6 +26,7 @@ pub struct Generated {
 
 struct Words {
     and: &'static str,
+    or: &'static str,
     not: &'static str,
     yes: &'static str,
     no: &'static str,
@@ -52,6 +53,7 @@ struct Words {
 
 const HU: Words = Words {
     and: "és",
+    or: "vagy",
     not: "nem",
     yes: "igaz",
     no: "hamis",
@@ -77,6 +79,7 @@ const HU: Words = Words {
 
 const EN: Words = Words {
     and: "and",
+    or: "or",
     not: "not",
     yes: "true",
     no: "false",
@@ -240,6 +243,99 @@ fn contains_lift(e: &Expr) -> bool {
     }
 }
 
+fn stray(e: &Expr, statement: bool) -> bool {
+    let side = |x: &Expr| match &*x.kind {
+        ExprKind::Macro { .. } => x.children().into_iter().any(|c| stray(c, false)),
+        _ => stray(x, false),
+    };
+    match &*e.kind {
+        ExprKind::Bin(BinOp::Imp, a, b) if statement => conjuncts(a)
+            .into_iter()
+            .chain(conjuncts(b))
+            .any(|p| stray(p, true)),
+        ExprKind::Quant {
+            all: true,
+            lo,
+            hi,
+            body,
+            ..
+        } if statement => {
+            stray(lo, false)
+                || stray(hi, false)
+                || conjuncts(body).into_iter().any(|p| stray(p, true))
+        }
+        ExprKind::Macro { name, .. } if !single_valued(name) => true,
+        _ => match equation(e) {
+            Some((l, r)) if statement => side(l) || side(r),
+            _ => e.children().into_iter().any(|c| stray(c, false)),
+        },
+    }
+}
+
+fn renamed(
+    e: &Expr,
+    renames: &[(String, String)],
+    hidden: &mut Vec<String>,
+    out: &mut Vec<(usize, usize, String)>,
+) {
+    let mut inside = |var: &String, parts: &[&Expr], hidden: &mut Vec<String>| {
+        hidden.push(var.clone());
+        for p in parts {
+            renamed(p, renames, hidden, out);
+        }
+        hidden.pop();
+    };
+    match &*e.kind {
+        ExprKind::Var(n) if !hidden.contains(n) => {
+            if let Some((_, with)) = renames.iter().rev().find(|(old, _)| old == n) {
+                out.push((e.start, e.end, with.clone()));
+            }
+        }
+        ExprKind::Quant {
+            var, lo, hi, body, ..
+        } => {
+            inside(var, &[body], hidden);
+            renamed(lo, renames, hidden, out);
+            renamed(hi, renames, hidden, out);
+        }
+        ExprKind::Macro {
+            var, lo, hi, args, ..
+        } => {
+            inside(var, &args.iter().collect::<Vec<_>>(), hidden);
+            renamed(lo, renames, hidden, out);
+            if let Some(hi) = hi {
+                renamed(hi, renames, hidden, out);
+            }
+        }
+        _ => e
+            .children()
+            .into_iter()
+            .for_each(|c| renamed(c, renames, hidden, out)),
+    }
+}
+
+const NEGATED: [(&str, &str); 4] = [("<", ">="), (">", "<="), ("=", "!="), ("|", "∤")];
+
+fn negated(op: &str) -> Option<&'static str> {
+    NEGATED.iter().find_map(|&(a, b)| match op {
+        _ if op == a => Some(b),
+        _ if op == b => Some(a),
+        _ => None,
+    })
+}
+
+fn mirrored(op: &str) -> Option<&'static str> {
+    Some(match op {
+        "<" => ">",
+        ">" => "<",
+        "<=" => ">=",
+        ">=" => "<=",
+        "=" => "=",
+        "!=" => "!=",
+        _ => return None,
+    })
+}
+
 /// `=` with a target on one side: (target, value).
 fn equation(e: &Expr) -> Option<(&Expr, &Expr)> {
     match &*e.kind {
@@ -257,6 +353,8 @@ struct Gen<'a> {
     locals: Vec<(String, String)>,
     /// Outputs that already have their value.
     assigned: HashSet<String>,
+    active: Vec<String>,
+    renames: Vec<(String, String)>,
     untranslated: usize,
 }
 
@@ -267,6 +365,8 @@ pub fn from_spec(spec: &Spec, title: &str) -> Generated {
         taken: HashSet::new(),
         locals: vec![],
         assigned: HashSet::new(),
+        active: vec![],
+        renames: vec![],
         untranslated: 0,
     };
     g.taken.extend(spec.decls.iter().map(|d| d.name.clone()));
@@ -304,7 +404,10 @@ pub fn from_spec(spec: &Spec, title: &str) -> Generated {
 impl Gen<'_> {
     /// The source of `e`, without parentheses around all of it (`∀i∈[1..n]:(T(i))` → `T(i)`).
     fn text(&self, e: &Expr) -> String {
-        let t = one_line(self.spec.text(e));
+        self.bare(e, self.render(e, &self.renames, vec![]))
+    }
+
+    fn bare(&self, e: &Expr, t: String) -> String {
         if matches!(&*e.kind, ExprKind::Tuple(_)) {
             return t;
         }
@@ -312,6 +415,22 @@ impl Gen<'_> {
             Some(inner) if balanced(inner) => inner.trim().to_string(),
             _ => t,
         }
+    }
+
+    fn render(
+        &self,
+        e: &Expr,
+        renames: &[(String, String)],
+        fixed: Vec<(usize, usize, String)>,
+    ) -> String {
+        let mut parts = vec![];
+        if !renames.is_empty() {
+            renamed(e, renames, &mut vec![], &mut parts);
+            parts.retain(|(a, b, _)| !fixed.iter().any(|(s, t, _)| s <= a && b <= t));
+        }
+        parts.extend(fixed);
+        parts.sort_by_key(|p| p.0);
+        self.splice(e, parts).trim().to_string()
     }
 
     fn fresh(&self, base: &str) -> String {
@@ -401,22 +520,14 @@ impl Gen<'_> {
 
     /// `e` with `var` replaced by `with` (for the first element of MAX: `f(i)` → `f(1)`).
     fn subst(&self, e: &Expr, var: &str, with: &str) -> String {
-        fn spans(e: &Expr, var: &str, out: &mut Vec<(usize, usize)>) {
-            match &*e.kind {
-                ExprKind::Var(n) if n == var => out.push((e.start, e.end)),
-                // a nested loop with the same variable hides it
-                ExprKind::Quant { var: v, .. } | ExprKind::Macro { var: v, .. } if v == var => {}
-                _ => e.children().into_iter().for_each(|c| spans(c, var, out)),
-            }
-        }
-        let mut found = vec![];
-        spans(e, var, &mut found);
         let with = if needs_parens(with) {
             format!("({with})")
         } else {
             with.to_string()
         };
-        self.splice(e, found.into_iter().map(|(a, b)| (a, b, with.clone())))
+        let mut renames = self.renames.clone();
+        renames.push((var.to_string(), with));
+        self.render(e, &renames, vec![])
     }
 
     /// The source of `e` with some of its parts (byte spans, in order) replaced.
@@ -449,10 +560,22 @@ impl Gen<'_> {
         }
     }
 
-    fn plus_one(&self, lo: &Expr) -> String {
+    fn cond_value(&mut self, e: &Expr, out: &mut Vec<Node>) -> String {
+        if !contains_lift(e) {
+            return self.conj_part(e);
+        }
+        let v = self.value(e, out);
+        match &*e.kind {
+            ExprKind::Bin(BinOp::Or | BinOp::Imp, ..) => format!("({v})"),
+            _ => v,
+        }
+    }
+
+    fn shifted(&self, lo: &Expr, by: i64) -> String {
         match &*lo.kind {
-            ExprKind::Int(k) => (k + 1).to_string(),
-            _ => format!("{}+1", self.text(lo)),
+            ExprKind::Int(k) => (k + by).to_string(),
+            _ if by < 0 => format!("{}-{}", self.text(lo), -by),
+            _ => format!("{}+{by}", self.text(lo)),
         }
     }
 
@@ -508,7 +631,7 @@ impl Gen<'_> {
                     let v = self.value(x, out);
                     parts.push((x.start, x.end, v));
                 }
-                self.splice(e, parts)
+                self.bare(e, self.render(e, &self.renames, parts))
             }
         }
     }
@@ -588,9 +711,20 @@ impl Gen<'_> {
                 }
             })
             .collect();
-        self.local(var, w.int);
         let lo_t = self.text(lo);
         let hi_t = hi.map(|h| self.text(h)).unwrap_or_default();
+        let theirs = var;
+        let var = if self.active.iter().any(|a| a == theirs) {
+            self.fresh(theirs)
+        } else {
+            theirs.to_string()
+        };
+        let var = var.as_str();
+        self.local(var, w.int);
+        self.active.push(var.to_string());
+        if var != theirs {
+            self.renames.push((theirs.to_string(), var.to_string()));
+        }
         let range = format!("{var}={lo_t}..{hi_t}");
         let set = |x: &str, v: &str| stmt(format!("{x}:={v}"));
         let step = || set(var, &format!("{var}+1"));
@@ -600,7 +734,7 @@ impl Gen<'_> {
                 let mut body = vec![];
                 match args.get(1) {
                     Some(c) => {
-                        let cv = self.value(c, &mut body);
+                        let cv = self.cond_value(c, &mut body);
                         let mut yes = vec![];
                         let fv = self.value(&args[0], &mut yes);
                         yes.push(set(&t[0], &format!("{}+{fv}", t[0])));
@@ -616,9 +750,27 @@ impl Gen<'_> {
             "COUNT" => {
                 out.push(set(&t[0], "0"));
                 let mut body = vec![];
-                let cv = self.value(&args[0], &mut body);
+                let cv = self.cond_value(&args[0], &mut body);
                 body.push(if_then(cv, vec![set(&t[0], &format!("{}+1", t[0]))]));
                 out.push(while_loop(range, body));
+            }
+            "EXISTS" | "FORALL" | "SEARCH" if contains_lift(&args[0]) => {
+                let all = name == "FORALL";
+                out.push(set(&t[0], if all { w.yes } else { w.no }));
+                out.push(set(var, &lo_t));
+                let mut body = vec![];
+                let cv = self.value(&args[0], &mut body);
+                body.push(set(&t[0], &cv));
+                body.push(step());
+                let go = if all {
+                    t[0].clone()
+                } else {
+                    format!("{} {}", w.not, t[0])
+                };
+                out.push(while_loop(format!("{var}≤{hi_t} {} {go}", w.and), body));
+                if name == "SEARCH" {
+                    out.push(if_then(&t[0], vec![set(&t[1], &format!("{var}-1"))]));
+                }
             }
             "EXISTS" | "FORALL" | "SEARCH" => {
                 let c = &args[0];
@@ -641,6 +793,17 @@ impl Gen<'_> {
                     out.push(if_then(&t[0], vec![set(&t[1], var)]));
                 }
             }
+            "SELECT" if contains_lift(&args[0]) => {
+                let found = self.fresh(w.found);
+                self.local(&found, w.boolean);
+                out.push(set(&found, w.no));
+                out.push(set(var, &self.shifted(lo, -1)));
+                let mut body = vec![step()];
+                let cv = self.value(&args[0], &mut body);
+                body.push(set(&found, &cv));
+                out.push(while_loop(format!("{} {found}", w.not), body));
+                out.push(set(&t[0], var));
+            }
             "SELECT" => {
                 out.push(set(var, &lo_t));
                 out.push(while_loop(self.negate(&args[0]), vec![step()]));
@@ -655,7 +818,7 @@ impl Gen<'_> {
             "MIS" => {
                 out.push(set(&t[0], "0"));
                 let mut body = vec![];
-                let cv = self.value(&args[0], &mut body);
+                let cv = self.cond_value(&args[0], &mut body);
                 let mut yes = vec![set(&t[0], &format!("{}+1", t[0]))];
                 let item = match args.get(1) {
                     Some(f) => self.value(f, &mut yes),
@@ -665,10 +828,20 @@ impl Gen<'_> {
                 body.push(if_then(cv, yes));
                 out.push(while_loop(range, body));
             }
+            "MAX" | "MIN" if contains_lift(&args[0]) => {
+                let rel = if name == "MAX" { ">" } else { "<" };
+                let mut body = vec![];
+                let fv = self.value(&args[0], &mut body);
+                body.push(if_then(
+                    format!("{var}={lo_t} {} {fv}{rel}{}", w.or, t[1]),
+                    vec![set(&t[0], var), set(&t[1], &fv)],
+                ));
+                out.push(while_loop(range, body));
+            }
             "MAX" | "MIN" => {
                 let rel = if name == "MAX" { ">" } else { "<" };
                 out.push(set(&t[0], &lo_t));
-                out.push(set(&t[1], &self.subst(&args[0], var, &lo_t)));
+                out.push(set(&t[1], &self.subst(&args[0], theirs, &lo_t)));
                 let mut body = vec![];
                 let fv = self.value(&args[0], &mut body);
                 body.push(if_then(
@@ -676,7 +849,7 @@ impl Gen<'_> {
                     vec![set(&t[0], var), set(&t[1], &fv)],
                 ));
                 out.push(while_loop(
-                    format!("{var}={}..{hi_t}", self.plus_one(lo)),
+                    format!("{var}={}..{hi_t}", self.shifted(lo, 1)),
                     body,
                 ));
             }
@@ -686,8 +859,17 @@ impl Gen<'_> {
                 let (f, c) = (&args[0], &args[1]);
                 out.push(set(&t[0], w.no));
                 let mut body = vec![];
+                let (cond, not_cond) = if contains_lift(c) {
+                    let cv = self.value(c, &mut body);
+                    let whole = match &*c.kind {
+                        ExprKind::Bin(BinOp::Or | BinOp::Imp, ..) => format!("({cv})"),
+                        _ => cv.clone(),
+                    };
+                    (whole, format!("{} ({cv})", w.not))
+                } else {
+                    (self.conj_part(c), self.negate(c))
+                };
                 let fv = self.value(f, &mut body);
-                let cond = self.conj_part(c);
                 let found = &t[0];
                 let case = |cond: String, body: Vec<Node>| Case {
                     id: fresh_id(),
@@ -695,7 +877,7 @@ impl Gen<'_> {
                     body: seq(body),
                 };
                 let cases = vec![
-                    case(self.negate(c), vec![]),
+                    case(not_cond, vec![]),
                     case(
                         format!("{cond} {} {found}", w.and),
                         vec![if_then(
@@ -711,6 +893,10 @@ impl Gen<'_> {
                 body.push(node(Kind::Switch { cases }));
                 out.push(while_loop(range, body));
             }
+        }
+        self.active.pop();
+        if var != theirs {
+            self.renames.pop();
         }
     }
 
@@ -848,34 +1034,97 @@ impl Gen<'_> {
     /// Part `k` of the postcondition. `c -> …` takes a `not c -> …` along as its else branch.
     fn part(&mut self, k: usize, parts: &[&Expr], done: &mut [bool], out: &mut Vec<Node>) {
         done[k] = true;
+        if stray(parts[k], true) {
+            return self.keep(parts[k], out);
+        }
         let ExprKind::Bin(BinOp::Imp, a, b) = &*parts[k].kind else {
             return self.step(parts[k], out);
         };
-        let other = (0..parts.len()).find(|&j| {
-            !done[j]
-                && matches!(&*parts[j].kind, ExprKind::Bin(BinOp::Imp, a2, _) if self.opposite(a, a2))
-        });
-        let otherwise = other.and_then(|j| {
-            done[j] = true;
-            match &*parts[j].kind {
-                ExprKind::Bin(_, _, b2) => Some(b2),
+        let others: Vec<(usize, &Expr, &Expr)> = (0..parts.len())
+            .filter(|&j| !done[j] && !stray(parts[j], true))
+            .filter_map(|j| match &*parts[j].kind {
+                ExprKind::Bin(BinOp::Imp, a2, b2) => Some((j, a2, b2)),
                 _ => None,
-            }
-        });
-        self.conditional(a, b, otherwise, out);
+            })
+            .collect();
+        if let Some(&(j, _, b2)) = others.iter().find(|(_, a2, _)| self.opposite(a, a2)) {
+            done[j] = true;
+            return self.decision(a, b, Some(b2), out);
+        }
+        let mine = self.sets_of(b);
+        let decides = |g: &Self, c: &Expr| {
+            conjuncts(c)
+                .into_iter()
+                .all(|p| g.sets_and_reads(p).0.is_empty())
+        };
+        let same: Vec<_> = others
+            .into_iter()
+            .filter(|(_, a2, b2)| {
+                decides(self, a2) && self.sets_of(b2).iter().any(|s| mine.contains(s))
+            })
+            .collect();
+        if same.is_empty() || !decides(self, a) {
+            return self.decision(a, b, None, out);
+        }
+        let mut arms = vec![(a, b)];
+        for (j, a2, b2) in same {
+            done[j] = true;
+            arms.push((a2, b2));
+        }
+        self.multiway(&arms, out);
+    }
+
+    fn sets_of(&self, e: &Expr) -> Vec<String> {
+        conjuncts(e)
+            .into_iter()
+            .flat_map(|p| self.sets_and_reads(p).0)
+            .collect()
     }
 
     /// `c` and `nem c` (either way round).
     fn opposite(&self, a: &Expr, b: &Expr) -> bool {
         match (&*a.kind, &*b.kind) {
-            (ExprKind::Not(x), _) => self.text(x) == self.text(b),
-            (_, ExprKind::Not(y)) => self.text(a) == self.text(y),
+            (ExprKind::Not(x), _) if self.text(x) == self.text(b) => true,
+            (_, ExprKind::Not(y)) if self.text(a) == self.text(y) => true,
+            (ExprKind::Cmp(v, p), ExprKind::Cmp(u, q)) if v.len() == 2 && u.len() == 2 => {
+                let same = |x: &Expr, y: &Expr| self.text(x) == self.text(y);
+                let straight = same(&v[0], &u[0]) && same(&v[1], &u[1]);
+                let swapped = same(&v[0], &u[1]) && same(&v[1], &u[0]);
+                straight && negated(p[0]) == Some(q[0])
+                    || swapped && mirrored(p[0]).and_then(negated) == Some(q[0])
+            }
             _ => false,
         }
     }
 
+    fn multiway(&mut self, arms: &[(&Expr, &Expr)], out: &mut Vec<Node>) {
+        let before = self.assigned.clone();
+        let mut after = before.clone();
+        let mut cases = vec![];
+        for (a, b) in arms {
+            self.assigned = before.clone();
+            let mut body = vec![];
+            for p in conjuncts(b) {
+                self.step(p, &mut body);
+            }
+            after.extend(self.assigned.drain());
+            let cond = conjuncts(a)
+                .into_iter()
+                .map(|c| self.cond_value(c, out))
+                .collect::<Vec<_>>()
+                .join(&format!(" {} ", self.w.and));
+            cases.push(Case {
+                id: fresh_id(),
+                cond: Some(Rich::plain(&cond)),
+                body: seq(body),
+            });
+        }
+        self.assigned = after;
+        out.push(node(Kind::Switch { cases }));
+    }
+
     /// `c -> x=…`: a decision. Equations in `c` that set outputs are done first, as steps.
-    fn conditional(&mut self, a: &Expr, b: &Expr, otherwise: Option<&Expr>, out: &mut Vec<Node>) {
+    fn decision(&mut self, a: &Expr, b: &Expr, otherwise: Option<&Expr>, out: &mut Vec<Node>) {
         let mut conds = vec![];
         for p in conjuncts(a) {
             if self.sets_and_reads(p).0.is_empty() {
@@ -903,7 +1152,7 @@ impl Gen<'_> {
         }
         let cond = conds
             .iter()
-            .map(|c| self.conj_part(c))
+            .map(|c| self.cond_value(c, out))
             .collect::<Vec<_>>()
             .join(&format!(" {} ", self.w.and));
         out.push(node(Kind::If {
@@ -911,6 +1160,13 @@ impl Gen<'_> {
             yes: seq(yes),
             no: seq(no),
         }));
+    }
+
+    fn keep(&mut self, c: &Expr, out: &mut Vec<Node>) {
+        let mut n = stmt(self.text(c));
+        n.bg = Some(UNTRANSLATED_BG.into());
+        out.push(n);
+        self.untranslated += 1;
     }
 
     /// One part of the postcondition.
@@ -937,6 +1193,7 @@ impl Gen<'_> {
             && let Some(pairs) = self.elementwise(body, var)
         {
             self.local(var, self.w.int);
+            self.active.push(var.clone());
             let mut steps = vec![];
             let mut sets = vec![];
             for (t, v) in pairs {
@@ -948,6 +1205,7 @@ impl Gen<'_> {
                     sets.push(n);
                 }
             }
+            self.active.pop();
             out.push(while_loop(
                 format!("{var}={}..{}", self.text(lo), self.text(hi)),
                 steps,
@@ -955,10 +1213,7 @@ impl Gen<'_> {
             self.assigned.extend(sets);
             return;
         }
-        let mut n = stmt(self.text(c));
-        n.bg = Some(UNTRANSLATED_BG.into());
-        out.push(n);
-        self.untranslated += 1;
+        self.keep(c, out);
     }
 
     fn assign(&mut self, t: &Expr, ts: &[Option<String>], v: &Expr, out: &mut Vec<Node>) {
@@ -1015,7 +1270,18 @@ impl Gen<'_> {
         d.show_header = true;
         d.show_return = true;
         let mut body = vec![];
+        self.active = f.params.clone();
+        let whole = matches!(&*f.body.kind, ExprKind::Macro { .. });
+        let unclear = if whole {
+            f.body.children().into_iter().any(|c| stray(c, false))
+        } else {
+            stray(&f.body, false)
+        };
         let ret = match &*f.body.kind {
+            _ if unclear => {
+                self.keep(&f.body, &mut body);
+                String::new()
+            }
             ExprKind::Macro {
                 name: m,
                 var,
@@ -1031,6 +1297,7 @@ impl Gen<'_> {
             }
             _ => self.value(&f.body, &mut body),
         };
+        self.active.clear();
         d.ret = Rich::plain(&ret);
         d.body = seq(body);
         self.finish_locals(&mut d);
@@ -1232,6 +1499,104 @@ mod tests {
             out,
             "== T\natl:=ossz(n)/n\n\
              == ossz(k:Egész):Valós\nvars s:Valós, i:Egész\ns:=0\n[while i=1..k]\n  s:=s+x[i]\nreturn s\n"
+        );
+    }
+
+    const TABLE: &str = "Be:\nn∈Z,\nm∈Z,\nx∈Z[1..n],\nt∈Z[1..n,1..m]\nKi:\n";
+    const REST: &str = " és n=n és m=m és x=x és t=t\n";
+
+    fn table(tail: &str) -> String {
+        outline_of(&format!("{TABLE}{tail}{REST}"))
+    }
+
+    #[test]
+    fn branches_that_exclude_each_other_are_one_decision() {
+        assert_eq!(
+            table("s∈Z\nEf:\n-\nUf:\n(n>m -> s=n) és (n≤m -> s=m)"),
+            "== T\n[if n>m]\n  s:=n\n[else]\n  s:=m\n"
+        );
+        assert_eq!(
+            table("s∈Z\nEf:\n-\nUf:\n(n<m -> s=n) és (m≤n -> s=m)"),
+            "== T\n[if n<m]\n  s:=n\n[else]\n  s:=m\n"
+        );
+        assert_eq!(
+            table("s∈Z\nEf:\n-\nUf:\n(n>0 -> s=1) és (n=0 -> s=0) és (n<0 -> s=-1)"),
+            "== T\n[case n>0]\n  s:=1\n[case n=0]\n  s:=0\n[case n<0]\n  s:=-1\n"
+        );
+    }
+
+    #[test]
+    fn a_nested_loop_with_the_same_variable_gets_its_own() {
+        assert_eq!(
+            table("s∈Z\nEf:\n-\nUf:\ns=SZUMMA(i=1..n, SZUMMA(i=1..m, t[1,i]))"),
+            "== T\nvars i:Egész, s2:Egész, i2:Egész\ns:=0\n[while i=1..n]\n  s2:=0\n  \
+             [while i2=1..m]\n    s2:=s2+t[1,i2]\n  s:=s+s2\n"
+        );
+    }
+
+    #[test]
+    fn patterns_inside_a_condition_become_steps() {
+        assert_eq!(
+            table("van∈L\nEf:\n-\nUf:\nvan=∃i∈[1..n]:(SZUMMA(j=1..m, t[i,j])>0)"),
+            "== T\nvars i:Egész, s:Egész, j:Egész\nvan:=hamis\ni:=1\n\
+             [while i≤n és nem van]\n  s:=0\n  [while j=1..m]\n    s:=s+t[i,j]\n  van:=s>0\n  i:=i+1\n"
+        );
+        let search =
+            table("van∈L,\nk∈N\nEf:\n-\nUf:\n(van,k)=KERES(i=1..n, SZUMMA(j=1..m, t[i,j])>3)");
+        assert!(
+            search.ends_with("  van:=s>3\n  i:=i+1\n[if van]\n  k:=i-1\n"),
+            "{search}"
+        );
+        let all = table("van∈L\nEf:\n-\nUf:\nvan=∀i∈[1..n]:(DARAB(j=1..m, t[i,j]>0)>0)");
+        assert!(
+            all.contains("van:=igaz\ni:=1\n[while i≤n és van]\n"),
+            "{all}"
+        );
+        let select = table("k∈N\nEf:\n-\nUf:\nk=KIVÁLASZT(i>=1, SZUMMA(j=1..m, t[i,j])>0)");
+        assert!(
+            select.contains("van:=hamis\ni:=0\n[while nem van]\n  i:=i+1\n  s:=0\n")
+                && select.ends_with("  van:=s>0\nk:=i\n"),
+            "{select}"
+        );
+        let condmax = table(
+            "van∈L,\nmi∈N,\nme∈Z\nEf:\n-\nUf:\n(van,mi,me)=MAXHA(i=1..n, x[i], DARAB(j=1..m, t[i,j]>0)>2)",
+        );
+        assert!(
+            condmax.contains("  [case nem (db>2)]\n") && condmax.contains("  [case db>2 és van]\n"),
+            "{condmax}"
+        );
+        let decision = table(
+            "s∈Z\nEf:\n-\nUf:\n(DARAB(i=1..n, x[i]>0)>1 -> s=1) és (DARAB(i=1..n, x[i]>0)≤1 -> s=0)",
+        );
+        assert!(
+            decision.ends_with("[if db>1]\n  s:=1\n[else]\n  s:=0\n"),
+            "{decision}"
+        );
+        for out in [search, all, select, condmax, decision] {
+            assert!(!out.contains("SZUMMA") && !out.contains("DARAB"), "{out}");
+        }
+    }
+
+    #[test]
+    fn the_first_element_of_a_maximum_gets_the_same_steps() {
+        assert_eq!(
+            table("mi∈N,\nme∈Z\nEf:\nn>0\nUf:\n(mi,me)=MAX(i=1..n, SZUMMA(j=1..m, t[i,j]))"),
+            "== T\nvars i:Egész, s:Egész, j:Egész\n[while i=1..n]\n  s:=0\n  [while j=1..m]\n    \
+             s:=s+t[i,j]\n  [if i=1 vagy s>me]\n    mi:=i\n    me:=s\n"
+        );
+    }
+
+    #[test]
+    fn a_pattern_that_cannot_become_steps_is_kept_tinted() {
+        let spec = parse(&format!(
+            "{TABLE}s∈Z\nEf:\nn>0\nUf:\ns=MAX(i=1..n, x[i]).maxval{REST}"
+        ))
+        .unwrap();
+        let g = from_spec(&spec, "T");
+        assert_eq!(g.untranslated, 1);
+        assert_eq!(
+            outline(&g.program),
+            "== T\ns=MAX(i=1..n, x[i]).maxval (!)\n"
         );
     }
 }

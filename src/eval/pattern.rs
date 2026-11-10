@@ -5,6 +5,18 @@ use super::{Env, Eval, R, Value};
 use crate::parser::Expr;
 use std::cmp::Ordering;
 
+pub fn result_names(name: &str) -> &'static [&'static str] {
+    match name {
+        "SEARCH" => &["found", "ind"],
+        "MIS" => &["cnt", "items"],
+        "MAX" => &["maxind", "maxval"],
+        "MIN" => &["minind", "minval"],
+        "CONDMAX" => &["found", "maxind", "maxval"],
+        "CONDMIN" => &["found", "minind", "minval"],
+        _ => &[],
+    }
+}
+
 impl Eval<'_> {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn pattern(
@@ -88,13 +100,13 @@ impl Eval<'_> {
                     if self.truth(&args[0], env)? {
                         return Ok(Value::Tuple(
                             vec![Value::Bool(true), Value::Int(i)],
-                            &["found", "ind"],
+                            result_names(name),
                         ));
                     }
                 }
                 Ok(Value::Tuple(
                     vec![Value::Bool(false), Value::Undef],
-                    &["found", "ind"],
+                    result_names(name),
                 ))
             }
             "COPY" => {
@@ -128,7 +140,7 @@ impl Eval<'_> {
                             items: items.into(),
                         },
                     ],
-                    &["cnt", "items"],
+                    result_names(name),
                 ))
             }
             "MAX" | "MIN" | "CONDMAX" | "CONDMIN" => {
@@ -165,12 +177,7 @@ impl Eval<'_> {
                         best = Some((i, v));
                     }
                 }
-                let names: &'static [&'static str] = match name {
-                    "MAX" => &["maxind", "maxval"],
-                    "MIN" => &["minind", "minval"],
-                    "CONDMAX" => &["found", "maxind", "maxval"],
-                    _ => &["found", "minind", "minval"],
-                };
+                let names = result_names(name);
                 match (best, cond) {
                     (Some((i, v)), false) => Ok(Value::Tuple(vec![Value::Int(i), v], names)),
                     (Some((i, v)), true) => Ok(Value::Tuple(vec![Value::Bool(true), Value::Int(i), v], names)),

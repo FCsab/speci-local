@@ -7,6 +7,7 @@
 //! clipboard as one `STUKI1:` line, and pictures are copied or exported as PNG.
 
 mod canvas;
+mod checks;
 mod colors;
 mod export;
 mod files;
@@ -17,6 +18,7 @@ mod menu;
 pub mod model;
 pub mod png;
 pub mod rich;
+pub mod run;
 pub mod settings;
 #[cfg(test)]
 mod tests;
@@ -96,6 +98,9 @@ pub struct Stuki {
     pub settings: Settings,
     show_colors: bool,
     show_help: bool,
+    show_tests: bool,
+    #[serde(skip)]
+    checks: checks::Checks,
     #[serde(skip)]
     selected: Option<u64>,
     /// Diagram whose header / variables / return text was clicked last.
@@ -149,6 +154,8 @@ impl Default for Stuki {
             settings: Settings::default(),
             show_colors: false,
             show_help: false,
+            show_tests: false,
+            checks: Default::default(),
             selected: None,
             focus_diagram: None,
             last_text: None,
@@ -233,7 +240,7 @@ impl Stuki {
     // ---------------------------------------------------------------- UI
 
     /// The whole Stuki tab: menu, color panel, help and the editor.
-    pub fn show(&mut self, ui: &mut egui::Ui) {
+    pub fn show(&mut self, ui: &mut egui::Ui, spec: &str, tests: &[String]) {
         let ctx = ui.ctx().clone();
         self.keyboard(&ctx);
         let bar = Frame::new()
@@ -243,6 +250,12 @@ impl Stuki {
             .resizable(false)
             .frame(bar)
             .show(ui, |ui| self.menu(ui));
+        if self.show_tests {
+            egui::Panel::top("stuki-tests")
+                .resizable(false)
+                .frame(bar.fill(ui.visuals().faint_bg_color))
+                .show(ui, |ui| self.tests_row(ui, spec, tests));
+        }
         if self.show_colors {
             egui::Panel::top("stuki-colors")
                 .resizable(false)

@@ -19,6 +19,25 @@ fn green(spec: &str, tests: &[&str]) {
             render(&o.diags, spec, t)
         );
     }
+    auto_stuki_agrees(&s, tests);
+}
+
+fn auto_stuki_agrees(spec: &speci_local::parser::Spec, tests: &[&str]) {
+    use speci_local::stuki::{from_spec::from_spec, run::Runner};
+    let built = from_spec(spec, "");
+    if built.untranslated > 0 {
+        return;
+    }
+    let runner = Runner::new(&built.program, spec)
+        .unwrap_or_else(|v| panic!("the structogram can't be run: {}\n{}", v.message, spec.src));
+    for t in tests {
+        let v = runner.test(t, &std::sync::atomic::AtomicBool::new(false));
+        assert!(
+            v.pass,
+            "the structogram fails\n{t}\n{}\noutputs: {:?}\n{}",
+            v.message, v.values, spec.src
+        );
+    }
 }
 
 /// Run a test that must fail; return the rendered message.

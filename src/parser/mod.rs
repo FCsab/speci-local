@@ -17,6 +17,7 @@ pub use ast::{
 use crate::diag::Diagnostic;
 use blocks::BlockKind;
 use grammar::Parser;
+use lexer::Tok;
 use std::collections::HashMap;
 
 pub fn parse(src: &str) -> Result<Spec, Vec<Diagnostic>> {
@@ -68,4 +69,50 @@ fn parse_blocks(src: &str) -> Result<Spec, Diagnostic> {
         pre_kw,
         post_kw,
     })
+}
+
+#[derive(Clone, Debug)]
+pub enum Fragment {
+    Assign(Expr, Expr),
+    Range(String, Expr, Expr),
+    Expr(Expr),
+}
+
+pub fn parse_fragment(src: &str, from: usize, to: usize) -> Result<Fragment, Diagnostic> {
+    let toks = lexer::lex(src, src, from, to)?;
+    let counting = matches!(toks.first().map(|t| &t.tok), Some(Tok::Ident(_)))
+        && toks.get(1).is_some_and(|t| t.tok == Tok::Sym("="))
+        && {
+            let mut depth = 0;
+            toks.iter().any(|t| {
+                match t.tok {
+                    Tok::Sym("(" | "[") => depth += 1,
+                    Tok::Sym(")" | "]") => depth -= 1,
+                    _ => {}
+                }
+                depth == 0 && t.tok == Tok::Sym("..")
+            })
+        };
+    let assigns = toks.iter().any(|t| t.tok == Tok::Sym(":="));
+    let mut p = Parser::new(src, toks, "structogram");
+    let parsed = if assigns {
+        let target = p.add()?;
+        p.expect(":=", "`:=`")?;
+        Fragment::Assign(target, p.expr()?)
+    } else if counting {
+        let var = p.ident("loop variable")?;
+        p.expect("=", "`=`")?;
+        let lo = p.add()?;
+        p.expect("..", "`..`")?;
+        Fragment::Range(var, lo, p.add()?)
+    } else {
+        Fragment::Expr(p.expr()?)
+    };
+    if let Some(d) = p.depth_error() {
+        return Err(d);
+    }
+    if p.peek().tok != Tok::Eof {
+        return Err(p.unexpected("the end of the text"));
+    }
+    Ok(parsed)
 }

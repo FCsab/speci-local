@@ -163,7 +163,17 @@ fn exercise(spec: &str, data: &str) {
     let _ = trace_test(&parsed, data, &AtomicBool::new(false));
     let _ = scaffold(&parsed, data);
     // Auto Stuki works on anything the parser accepts
-    let _ = speci_local::stuki::from_spec::from_spec(&parsed, "fuzz");
+    let built = speci_local::stuki::from_spec::from_spec(&parsed, "fuzz");
+    let verdicts = speci_local::stuki::run::run_tests(
+        &built.program,
+        &parsed,
+        &[data.to_string()],
+        &AtomicBool::new(false),
+    );
+    assert!(
+        verdicts[0].pass || !verdicts[0].message.is_empty(),
+        "the structogram failed without a message"
+    );
 }
 
 fn on_eval_stack(f: impl FnOnce() + Send + 'static) {
