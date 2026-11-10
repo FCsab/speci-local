@@ -137,6 +137,9 @@ impl Eval<'_> {
         for a in args {
             vals.push(self.eval(a, env)?);
         }
+        if let Some(answer) = self.calls.and_then(|calls| calls(name, &vals, env)) {
+            return answer;
+        }
         let spec = self.spec;
         let (name, f) = spec
             .funcs

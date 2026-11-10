@@ -399,7 +399,7 @@ impl App {
             .frame(bar.inner_margin(Margin::symmetric(12, 3)))
             .show(ui, |ui| self.status_bar(ui));
         if self.tool == Tool::Stuki {
-            self.stuki.show(ui);
+            self.stuki.show(ui, &self.doc.spec, &self.doc.tests);
             if std::mem::take(&mut self.stuki.wants_spec) {
                 self.stuki_from_spec();
             }

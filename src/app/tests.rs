@@ -396,3 +396,70 @@ fn auto_stuki_builds_structograms_from_the_spec() {
     assert!(h.state().stuki.status.starts_with("Fix the specification"));
     assert_eq!(h.state().stuki.program.diagrams[0].body.len(), 2);
 }
+
+#[test]
+fn stuki_runs_the_test_cases() {
+    use crate::stuki::model::Kind;
+    use crate::ui::{I_FAIL, I_RUN, I_WAND};
+    let mut h = Harness::builder()
+        .with_size([1360.0, 900.0])
+        .build_eframe(|cc| {
+            let mut a = create(cc, None);
+            a.doc = sample();
+            a.doc.tests.push("n: 2\nszamok: [2, 4]\ndb: 0\n".into());
+            a.tool = Tool::Stuki;
+            a.stuki = Stuki::default();
+            a
+        });
+    h.run_steps(4);
+    h.get_by_label(&format!("{I_WAND}  Auto Stuki")).click();
+    h.run_steps(4);
+    h.get_by_label(&format!("{I_RUN}  Run tests")).click();
+    let wait = |h: &mut Harness<'static, App>| {
+        h.run_steps(2);
+        for _ in 0..400 {
+            if let Some(v) = h.state().stuki.verdicts() {
+                return v;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            h.step();
+        }
+        panic!("the run never finished");
+    };
+    assert_eq!(
+        wait(&mut h),
+        Ok(vec![(true, String::new()), (true, String::new())])
+    );
+    h.run_steps(2);
+    assert_eq!(h.query_all_by_label("All 2 test case(s) pass").count(), 1);
+
+    let decision = {
+        let body = &mut h.state_mut().stuki.program.diagrams[0].body;
+        let Kind::While { body, .. } = &mut body[1].kind else {
+            panic!("the counting loop")
+        };
+        let Kind::If { cond, .. } = &mut body[0].kind else {
+            panic!("the decision")
+        };
+        *cond = crate::stuki::rich::Rich::plain("szamok[i+1] mod 2 = 1");
+        body[0].id
+    };
+    let failed = wait(&mut h).unwrap();
+    assert!(
+        failed
+            .iter()
+            .all(|(pass, m)| !pass && m.contains("out of range")),
+        "{failed:?}"
+    );
+    h.run_steps(2);
+    h.get_by_label(&format!("{I_FAIL} 2")).click();
+    h.run_steps(2);
+    assert_eq!(h.state().stuki.selected(), Some(decision));
+
+    h.state_mut().doc.spec = "Be:\nn∈N\nKi:\nUf:\n".into();
+    let broken = wait(&mut h).unwrap_err();
+    assert!(
+        broken.starts_with("Fix the specification first"),
+        "{broken}"
+    );
+}

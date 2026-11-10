@@ -7,6 +7,7 @@ mod pattern;
 mod trace;
 mod value;
 
+pub use pattern::result_names;
 pub use trace::{Step, StepKind, TRACE_CAP, Trace};
 pub use value::{Env, Value, set_from};
 
@@ -16,6 +17,8 @@ use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use value::{restore, set};
 
 type R<T> = Result<T, Diagnostic>;
+
+pub type Calls<'a> = dyn Fn(&str, &[Value], &Env) -> Option<Result<Value, Diagnostic>> + 'a;
 
 const MAX_STEPS: u64 = 50_000_000;
 /// Longest loop a quantifier or theorem macro may run (also bounds memory for COPY/MIS).
@@ -38,6 +41,8 @@ pub struct Eval<'a> {
     scope_names: Vec<String>,
     error_recorded: bool,
     trace_full: bool,
+    pub calls: Option<&'a Calls<'a>>,
+    pub compare_only: bool,
 }
 
 impl<'a> Eval<'a> {
@@ -55,6 +60,8 @@ impl<'a> Eval<'a> {
             scope_names: Vec::new(),
             error_recorded: false,
             trace_full: false,
+            calls: None,
+            compare_only: false,
         }
     }
 
@@ -104,7 +111,7 @@ impl<'a> Eval<'a> {
         self.spec.text(e)
     }
     pub fn is_unbound(&self, env: &Env, name: &str) -> bool {
-        self.spec.decl(name).is_some() && !env.contains_key(name)
+        !self.compare_only && self.spec.decl(name).is_some() && !env.contains_key(name)
     }
 
     pub fn truth(&mut self, e: &Expr, env: &mut Env) -> R<bool> {

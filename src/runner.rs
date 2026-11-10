@@ -89,7 +89,7 @@ fn explain_quantifier(ev: &mut Eval, part: &Expr, env: &mut Env) -> Option<Strin
 }
 
 /// Find the first top-level `and` part that is false and say why.
-fn explain_false(ev: &mut Eval, e: &Expr, env: &Env, which: &str) -> Diagnostic {
+pub(crate) fn explain_false(ev: &mut Eval, e: &Expr, env: &Env, which: &str) -> Diagnostic {
     let spec = ev.spec;
     let mut c = env.clone();
     for part in conjuncts(e) {
