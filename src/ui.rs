@@ -105,6 +105,8 @@ pub fn status_bar(
     path: Option<&Path>,
     what: &str,
     cursor: Option<(usize, usize)>,
+    // Vim mode of the editors, when the Vim keybindings are on
+    mode: Option<&str>,
 ) {
     let file = match path {
         Some(p) => p.display().to_string(),
@@ -120,6 +122,9 @@ pub fn status_bar(
             );
             if let Some((l, c)) = cursor {
                 ui.label(RichText::new(format!("Ln {l}, Col {c}")).small().weak());
+            }
+            if let Some(mode) = mode {
+                ui.label(RichText::new(mode).small().monospace().color(ACCENT));
             }
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 if dirty {

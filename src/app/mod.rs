@@ -24,7 +24,7 @@ pub(crate) use theme::fonts;
 
 use crate::Outcome;
 use crate::diag::Diagnostic;
-use crate::editor::{Completion, Item};
+use crate::editor::{Completion, Item, Vim};
 use crate::eval::Trace;
 use crate::file::Doc;
 use crate::platform;
@@ -96,6 +96,10 @@ struct App {
     path: Option<PathBuf>,
     /// Re-evaluate automatically shortly after every change.
     auto: bool,
+    /// Vim keybindings in the code editors.
+    vim: bool,
+    #[serde(skip)]
+    vim_state: Vim,
     view: View,
     tab: Tab,
     /// The editor shown: specifications or structograms.
@@ -160,6 +164,8 @@ impl Default for App {
             show_v: true,
             path: None,
             auto: true,
+            vim: false,
+            vim_state: Vim::default(),
             view: View::Results,
             tab: Tab::Spec,
             tool: Tool::Spec,
