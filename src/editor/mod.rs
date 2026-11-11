@@ -4,9 +4,11 @@ mod complete;
 mod highlight;
 #[cfg(test)]
 mod tests;
+mod vim;
 
 pub use complete::{Completion, Item, Kind, scan_symbols};
 pub use highlight::{Palette, highlight_data, highlight_spec, palette};
+pub use vim::Vim;
 
 use eframe::egui::{
     self, FontId, Id, Key, Modifiers, RichText, TextEdit, TextFormat, text::CCursor,
@@ -59,6 +61,7 @@ pub fn cursor_of(ctx: &egui::Context, id: Id) -> Option<(usize, usize)> {
 }
 
 /// A code editor with line numbers, highlighting and completion.
+/// With `vim`, the Vim keybindings are on.
 #[allow(clippy::too_many_arguments)]
 pub fn code_editor(
     ui: &mut egui::Ui,
@@ -69,6 +72,7 @@ pub fn code_editor(
     errors: &[usize],
     comp: &mut Completion,
     hint: &str,
+    mut vim: Option<&mut Vim>,
 ) {
     let p = palette(ui.visuals().dark_mode);
     let font = egui::TextStyle::Monospace.resolve(ui.style());
@@ -76,13 +80,22 @@ pub fn code_editor(
     if comp.owner == Some(id) && !focused {
         comp.items.clear();
     }
-    let open = focused && comp.is_open_for(id);
+    // Vim Normal / Visual mode: keys are commands, not text
+    let commands = |v: &Option<&mut Vim>| v.as_ref().is_some_and(|v| !v.inserting());
+    let open = focused && !commands(&vim) && comp.is_open_for(id);
 
     // keys must be taken before the TextEdit sees them
     if open {
         popup_keys(ui, id, text, comp);
     }
-    if focused {
+    if focused && let Some(v) = vim.as_deref_mut() {
+        v.handle(ui.ctx(), id, text);
+    }
+    let vim_cmd = commands(&vim);
+    if focused && vim_cmd && comp.owner == Some(id) {
+        comp.items.clear();
+    }
+    if focused && !vim_cmd {
         // Alt+1 … Alt+6 insert ∈ ∀ ∃ ≠ ≤ ≥ (the order of the symbol buttons)
         if lang == Lang::Spec
             && let Some(sym) = symbol_key(ui)
@@ -96,10 +109,24 @@ pub fn code_editor(
         }
     }
 
-    let out = text_area(ui, id, text, lang, errors, hint, open, &p, &font);
+    // with Vim, Escape leaves Insert mode instead of the editor
+    let keep_escape = open || vim.is_some();
+    let out = text_area(ui, id, text, lang, errors, hint, keep_escape, &p, &font);
+
+    if vim_cmd && out.response.has_focus() {
+        let at = vim.as_ref().and_then(|v| v.visual_cursor()).or_else(|| {
+            out.cursor_range
+                .filter(|r| r.primary == r.secondary)
+                .map(|r| r.primary.index.0)
+        });
+        if let Some(at) = at {
+            block_cursor(ui, &out, at, &font, p.text);
+        }
+    }
 
     // update the suggestion list after typing
     if out.response.has_focus()
+        && !vim_cmd
         && let Some(r) = out.cursor_range
     {
         let changed = out.response.changed();
@@ -120,6 +147,32 @@ pub fn code_editor(
             comp.items.clear();
         }
     }
+}
+
+/// Vim's block cursor over the character at `at`.
+fn block_cursor(
+    ui: &egui::Ui,
+    out: &TextEditOutput,
+    at: usize,
+    font: &FontId,
+    color: egui::Color32,
+) {
+    let cur = |i: usize| {
+        let mut c = CCursor::default();
+        c.index.0 = i;
+        out.galley.pos_from_cursor(c)
+    };
+    let here = cur(at);
+    let next = cur(at + 1);
+    let w = if (next.top() - here.top()).abs() < 1.0 && next.left() > here.left() {
+        next.left() - here.left()
+    } else {
+        font.size * 0.6
+    };
+    let rect = egui::Rect::from_min_size(here.min, egui::vec2(w, here.height()))
+        .translate(out.galley_pos.to_vec2());
+    ui.painter()
+        .rect_filled(rect, 1.0, color.gamma_multiply(0.35));
 }
 
 fn replace_selection(ctx: &egui::Context, id: Id, text: &mut String, s: &str) {
@@ -176,7 +229,7 @@ fn text_area(
     lang: Lang,
     errors: &[usize],
     hint: &str,
-    popup_open: bool,
+    keep_escape: bool,
     p: &Palette,
     font: &FontId,
 ) -> TextEditOutput {
@@ -204,12 +257,12 @@ fn text_area(
             .desired_width(f32::INFINITY)
             .desired_rows(lines.max(20))
             .layouter(&mut layouter)
-            // keep focus on Escape while the popup is open (Escape closes the popup instead)
+            // keep focus on Escape while the popup is open (Escape closes it) or with Vim
             .event_filter(egui::EventFilter {
                 tab: true,
                 horizontal_arrows: true,
                 vertical_arrows: true,
-                escape: popup_open,
+                escape: keep_escape,
             })
             .show(ui);
         let name = match lang {
