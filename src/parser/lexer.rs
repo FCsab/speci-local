@@ -117,6 +117,7 @@ pub(super) fn lex(src: &str, orig: &str, from: usize, to: usize) -> Result<Vec<T
                 let v = s[i..end].parse::<i64>().map_err(|_| {
                     let (l, c) = line_col(orig, start);
                     Diagnostic::new(l, c, "Number is too large")
+                        .doc("ch02-02-lexical.html")
                         .explain("Whole numbers must fit in 64 bits.")
                 })?;
                 push(&mut toks, Tok::Int(v), at(end));
@@ -130,7 +131,7 @@ pub(super) fn lex(src: &str, orig: &str, from: usize, to: usize) -> Result<Vec<T
             let Some((e, quote)) = close else {
                 let (l, col) = line_col(orig, start);
                 return Err(Diagnostic::new(l, col, "Unterminated text literal")
-                    .explain("A text value starts with a quote but the line ends before the closing quote.")
+                    .doc("ch02-02-lexical.html").explain("A text value starts with a quote but the line ends before the closing quote.")
                     .hint("Add the closing `\"`."));
             };
             let body = s[i + c.len_utf8()..e].to_string();
@@ -147,6 +148,7 @@ pub(super) fn lex(src: &str, orig: &str, from: usize, to: usize) -> Result<Vec<T
         } else {
             let (l, col) = line_col(orig, start);
             let mut d = Diagnostic::new(l, col, format!("Unexpected character `{c}`"))
+                .doc("appendix-02-symbols.html")
                 .explain("This character is not part of the specification language.");
             d = match c {
                 '→' => d.hint("Write the arrow as `->`. The online editor rejects `→`."),
@@ -195,7 +197,7 @@ pub(super) fn strip_comments(src: &str) -> Result<String, Diagnostic> {
             let Some(n) = rest[2..].find("*/").map(|n| n + 4) else {
                 let (l, col) = line_col(src, src.len() - rest.len());
                 return Err(Diagnostic::new(l, col, "Comment is never closed")
-                    .explain("A `/*` block comment runs until `*/`, but there is no `*/` after this point.")
+                    .doc("ch02-02-lexical.html#comments").explain("A `/*` block comment runs until `*/`, but there is no `*/` after this point.")
                     .hint("Add `*/` where the comment should end."));
             };
             for ch in rest[..n].chars() {

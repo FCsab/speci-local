@@ -151,7 +151,7 @@ fn unknown_names(spec: &Spec, diags: &mut Vec<Diagnostic>) {
             Unknown::Var(name) => {
                 let d = at(spec, off, format!("`{name}` is not declared"));
                 let s = did_you_mean(name, declared.iter().copied());
-                let d = d.explain(format!(
+                let d = d.doc("ch02-01-blocks.html").explain(format!(
                     "Every variable must be declared in an In/Aux/Out (Be/Sa/Ki) block.{s}"
                 ));
                 if s.is_empty() {
@@ -171,6 +171,7 @@ fn unknown_function(spec: &Spec, off: usize, name: &str) -> Diagnostic {
     let upper = name.to_uppercase();
     if MACROS.iter().any(|m| m.0 == upper) {
         return d
+            .doc("ch06-00-theorems.html")
             .explain("Theorem macros are written in uppercase.")
             .hint(format!("Write `{upper}(…)`."));
     }
@@ -179,7 +180,7 @@ fn unknown_function(spec: &Spec, off: usize, name: &str) -> Diagnostic {
         .keys()
         .map(String::as_str)
         .chain(BUILTINS.iter().map(|b| b.0));
-    d.explain(format!(
+    d.doc("ch05-00-functions.html").explain(format!(
         "Functions must be defined in a `Fn:`/`Fv:` block. Built-in ones: length (hossz), from (tól), to (ig), abs, sqrt, round (kerekít).{}",
         did_you_mean(name, cands)
     ))
@@ -211,7 +212,7 @@ fn unknown_types(spec: &Spec, diags: &mut Vec<Diagnostic>) {
             continue;
         }
         let off = find_word(&spec.src, n).unwrap_or(0);
-        diags.push(at(spec, off, format!("Unknown type `{n}`")).explain(format!(
+        diags.push(at(spec, off, format!("Unknown type `{n}`")).doc("ch03-05-aliases.html").explain(format!(
             "Define it in a declaration block, e.g. `{n}=(name:S x value:N)`. Built-in sets: N, Z, R, L, S, C, K.{}",
             did_you_mean(n, spec.aliases.keys().map(String::as_str))
         )));
@@ -274,7 +275,7 @@ fn unused_in_post(spec: &Spec, diags: &mut Vec<Diagnostic>) {
                     d.name
                 ),
             )
-            .explain(format!(
+            .doc("ch02-03-all-variables.html").explain(format!(
                 "Every declared variable (input, auxiliary and output, constants too) must appear in `{postkw}` (directly or inside a function it calls). Using it only in `{prekw}` doesn't count. The online editor reports this as \"{} is missing from the post condition!\".",
                 d.name
             ))
@@ -297,7 +298,7 @@ fn outputs_in_pre(spec: &Spec, diags: &mut Vec<Diagnostic>) {
         {
             diags.push(
                 at(spec, x.start, format!("Output `{n}` is used in the precondition"))
-                    .explain(format!("The precondition may only talk about the input. The online editor reports this as \"Output data {n} is in the precondition!\"."))
+                    .doc("ch04-03-preconditions.html").explain(format!("The precondition may only talk about the input. The online editor reports this as \"Output data {n} is in the precondition!\"."))
                     .hint(format!("Move the condition on `{n}` into `{postkw}`.")),
             );
         }

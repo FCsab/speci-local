@@ -17,7 +17,12 @@ pub struct Diagnostic {
     pub title: String,
     pub explanation: String,
     pub hint: Option<String>,
+    /// Page (and anchor) of the docs book that explains this, relative to [`DOCS`].
+    pub doc: &'static str,
 }
+
+/// The English edition of the documentation book.
+pub const DOCS: &str = "https://fcsab.web.elte.hu/en/";
 
 impl Diagnostic {
     pub fn new(line: usize, col: usize, title: impl Into<String>) -> Self {
@@ -28,6 +33,7 @@ impl Diagnostic {
             title: title.into(),
             explanation: String::new(),
             hint: None,
+            doc: "ch08-02-errors.html",
         }
     }
     pub fn plain(title: impl Into<String>) -> Self {
@@ -43,6 +49,13 @@ impl Diagnostic {
     pub fn hint(mut self, s: impl Into<String>) -> Self {
         self.hint = Some(s.into());
         self
+    }
+    pub fn doc(mut self, page: &'static str) -> Self {
+        self.doc = page;
+        self
+    }
+    pub fn doc_url(&self) -> String {
+        format!("{DOCS}{}", self.doc)
     }
     pub fn data(mut self) -> Self {
         self.pane = Pane::Data;
@@ -220,6 +233,15 @@ mod tests {
         assert_eq!(
             d.render("spec", "data"),
             "Test data, line 1, column 1: T\n 1 | data\n   | ^"
+        );
+        assert_eq!(
+            d.doc_url(),
+            "https://fcsab.web.elte.hu/en/ch08-02-errors.html"
+        );
+        let d = d.doc("ch03-02-arrays.html#indexing");
+        assert_eq!(
+            d.doc_url(),
+            "https://fcsab.web.elte.hu/en/ch03-02-arrays.html#indexing"
         );
         let d = Diagnostic::plain("No position");
         assert_eq!((d.pane, d.line), (Pane::None, 0));

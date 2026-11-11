@@ -178,7 +178,7 @@ fn run_env(spec: &Spec, env: Env, cancel: &AtomicBool) -> Outcome {
         Ok(false) => {
             let which = format!("precondition ({})", spec.pre_kw.trim_end_matches(':'));
             let d = explain_false(&mut ev, &spec.pre, &env, &which);
-            return Outcome::failed(d.hint("This test case's input is not allowed by the precondition. Either the test data or the precondition is wrong."));
+            return Outcome::failed(d.doc("ch04-03-preconditions.html").hint("This test case's input is not allowed by the precondition. Either the test data or the precondition is wrong."));
         }
         Ok(true) => {}
     }
@@ -234,7 +234,7 @@ fn post_failed(ev: &mut Eval, env: &Env, outs: &[&Decl]) -> Outcome {
         let sep = if d.explanation.is_empty() { "" } else { "\n" };
         d.explanation = format!("{}{sep}{}", d.explanation, diffs.join("\n"));
     }
-    d = d.hint("Either the expected output in the test case is wrong, or the postcondition does not describe the task.");
+    d = d.doc("ch06-00-theorems.html").hint("Either the expected output in the test case is wrong, or the postcondition does not describe the task.");
     Outcome {
         pass: false,
         diags: vec![d],

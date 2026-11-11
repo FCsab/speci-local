@@ -12,6 +12,7 @@ impl App {
         #[cfg(target_os = "android")]
         self.files_dialog(ctx);
         self.paste_dialog(ctx);
+        self.update_dialog(ctx);
     }
 
     fn after_save(&mut self, action: super::Replace) {

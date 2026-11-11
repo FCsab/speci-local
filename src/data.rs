@@ -265,7 +265,7 @@ pub fn load(spec: &Spec, text: &str) -> Result<Env, Diagnostic> {
     let docs = YamlLoader::load_from_str(text).map_err(|e| {
         let m = e.marker();
         Diagnostic::new(m.line().max(1), m.col() + 1, "The test data is not valid")
-            .explain(format!("The data reader says: {}.", e.info()))
+            .doc("ch07-01-format.html").explain(format!("The data reader says: {}.", e.info()))
             .hint("Each line is `name: value`; arrays look like `[1, 2, 3]`, records like `{name: AS, time: 37}`.")
             .data()
     })?;
@@ -279,6 +279,7 @@ pub fn load(spec: &Spec, text: &str) -> Result<Env, Diagnostic> {
                 1,
                 "The test data must be a list of `name: value` lines",
             )
+            .doc("ch07-01-format.html")
             .hint("For example:\nn: 3\nnums: [1, 2, 3]")
             .data());
         }
@@ -290,7 +291,7 @@ pub fn load(spec: &Spec, text: &str) -> Result<Env, Diagnostic> {
             let line = key_line(text, &k);
             let sugg = did_you_mean(&k, declared.iter().copied());
             return Err(Diagnostic::new(line, 1, format!("`{k}` is not declared in the specification"))
-                .explain(format!("Test data keys must match the declared variable names exactly (case-sensitive).{sugg}"))
+                .doc("ch07-01-format.html").explain(format!("Test data keys must match the declared variable names exactly (case-sensitive).{sugg}"))
                 .hint("Fix the name here, or declare the variable in the specification.")
                 .data());
         }
@@ -309,7 +310,7 @@ pub fn load(spec: &Spec, text: &str) -> Result<Env, Diagnostic> {
         let value = match map.get(&Yaml::String(d.name.clone())) {
             Some(_) if d.init.is_some() => {
                 return Err(Diagnostic::new(line, 1, format!("`{}` already has its value in the specification", d.name))
-                    .explain(format!("`{}` is declared with an initial value, so the test data must not give it again. The online editor reports this as \"data cannot contain item with the same name: {}\".", d.name, d.name))
+                    .doc("ch07-01-format.html").explain(format!("`{}` is declared with an initial value, so the test data must not give it again. The online editor reports this as \"data cannot contain item with the same name: {}\".", d.name, d.name))
                     .hint(format!("Delete the `{}:` line from this test case.", d.name))
                     .data());
             }
@@ -331,6 +332,7 @@ pub fn load(spec: &Spec, text: &str) -> Result<Env, Diagnostic> {
                             type_name(spec, &d.ty)
                         ),
                     )
+                    .doc("ch07-01-format.html")
                     .explain(msg)
                     .data()
                 })?
@@ -361,6 +363,7 @@ pub fn load(spec: &Spec, text: &str) -> Result<Env, Diagnostic> {
                         d.role.noun(),
                         d.name
                     ))
+                    .doc("ch07-01-format.html")
                     .explain(why)
                     .hint(format!(
                         "Add a line `{}: …`, or press Scaffold to insert every variable name.",

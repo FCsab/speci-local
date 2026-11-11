@@ -14,6 +14,7 @@ mod stepper;
 mod tests;
 mod theme;
 mod toolbar;
+mod update;
 
 #[cfg(target_os = "android")]
 pub use launch::run_android;
@@ -98,6 +99,15 @@ struct App {
     auto: bool,
     /// Vim keybindings in the code editors.
     vim: bool,
+    /// The release the user chose to skip in the update dialog.
+    skipped_version: String,
+    /// "Don't show again" in the update dialog.
+    no_update_check: bool,
+    #[serde(skip)]
+    update_rx: Option<std::sync::mpsc::Receiver<String>>,
+    /// A newer release to tell the user about.
+    #[serde(skip)]
+    new_version: Option<String>,
     #[serde(skip)]
     vim_state: Vim,
     view: View,
@@ -165,6 +175,10 @@ impl Default for App {
             path: None,
             auto: true,
             vim: false,
+            skipped_version: String::new(),
+            no_update_check: false,
+            update_rx: None,
+            new_version: None,
             vim_state: Vim::default(),
             view: View::Results,
             tab: Tab::Spec,

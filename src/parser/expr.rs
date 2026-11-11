@@ -235,6 +235,7 @@ impl Parser<'_> {
                 if self.is("(") && upper != name && MACROS.iter().any(|m| m.0 == upper) {
                     return Err(self
                         .err_at(start, format!("Unknown function `{name}`"))
+                        .doc("ch06-00-theorems.html")
                         .explain("Theorem macros are written in uppercase.")
                         .hint(format!("Write `{upper}(…)`.")));
                 }
@@ -337,7 +338,7 @@ impl Parser<'_> {
             // e.g. `(exists,ind)=SEARCH(…)`: the keyword was meant as a variable
             return Err(self
                 .err_at(start, format!("`{}` is a reserved word and can't be used as a name", t.text))
-                .explain(format!("`{}` is the ASCII spelling of {q}, so it is read as a quantifier here.", t.text))
+                .doc("ch02-02-lexical.html#reserved-words").explain(format!("`{}` is the ASCII spelling of {q}, so it is read as a quantifier here.", t.text))
                 .hint("Rename the variable everywhere (declaration, postcondition and test data), e.g. to `van` or `talalt`."));
         }
         let var = self.ident("quantifier variable (like `i` in `∀i∈[1..n]:(…)`)")?;
@@ -384,7 +385,7 @@ impl Parser<'_> {
             if self.peek().text == "≥" {
                 return Err(self
                     .err_at(self.peek().start, "Expected `>=` but found `≥`")
-                    .explain("Inside SELECT the online editor only accepts `>=`, although `≥` works everywhere else.")
+                    .doc("ch06-05-select.html").explain("Inside SELECT the online editor only accepts `>=`, although `≥` works everywhere else.")
                     .hint("Write `SELECT(i>=1, …)`."));
             }
             if !self.eat(">=") {
@@ -425,6 +426,7 @@ impl Parser<'_> {
                         args.len()
                     ),
                 )
+                .doc("ch06-00-theorems.html")
                 .explain(format!("Usage: {usage}")));
         }
         Ok(self.mk(

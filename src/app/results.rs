@@ -207,6 +207,8 @@ fn diag_ui(ui: &mut egui::Ui, d: &Diagnostic, spec: &str, data: &str) -> bool {
                         go = true;
                     }
                 }
+                ui.hyperlink_to("Docs", d.doc_url())
+                    .on_hover_text("Open the part of the book that explains this");
             });
             let src = if d.pane == Pane::Data { data } else { spec };
             if let Some(line) = src.lines().nth(d.line.wrapping_sub(1)) {

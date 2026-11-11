@@ -89,7 +89,7 @@ pub(super) fn split_blocks(src: &str) -> Result<Vec<Block>, Diagnostic> {
             let rest = &after[1..];
             if rest.chars().next().is_some_and(|c| !c.is_whitespace()) {
                 return Err(Diagnostic::new(line_no, col + word.chars().count() + 1, format!("Missing space after `{h}:`"))
-                    .explain("A block header is followed either by a space (the content continues on the same line) or by a line break (the content starts on the next line). The ELTE editor rejects anything else.")
+                    .doc("ch02-01-blocks.html").explain("A block header is followed either by a space (the content continues on the same line) or by a line break (the content starts on the next line). The ELTE editor rejects anything else.")
                     .hint(format!("Write `{h}: {}`", rest.trim())));
             }
             let body_start = lstart + indent + word.len() + 1;
@@ -98,7 +98,7 @@ pub(super) fn split_blocks(src: &str) -> Result<Vec<Block>, Diagnostic> {
             } else if let Some(fc) = first_content {
                 let (l, c) = line_col(src, fc);
                 return Err(Diagnostic::new(l, c, "Text before the first block")
-                    .explain("A specification must start with the input block. Only comments may come before it.")
+                    .doc("ch02-01-blocks.html").explain("A specification must start with the input block. Only comments may come before it.")
                     .hint("Start with `In:` (or `Be:`), or turn this text into a comment with `//`."));
             }
             blocks.push(Block {
@@ -127,23 +127,27 @@ pub(super) fn split_blocks(src: &str) -> Result<Vec<Block>, Diagnostic> {
                     Diagnostic::new(line_no, col, format!("Unknown block header `{word}:`"));
                 if let Some(h) = case_twin.filter(|h| *h == word) {
                     d = d
+                        .doc("ch02-01-blocks.html")
                         .explain(format!(
                             "There must be no space between `{h}` and the colon."
                         ))
                         .hint(format!("Write `{h}:`"));
                 } else if let Some(h) = case_twin {
                     d = d
+                        .doc("ch02-01-blocks.html")
                         .explain(format!(
                             "Block headers are case-sensitive. The valid headers are: {all_headers}"
                         ))
                         .hint(format!("Write `{h}:`"));
                 } else if let Some(r) = wrong {
                     d = d
-                        .explain(format!("`{word}:` looks like a translation of a header, but the editor only knows these: {all_headers}"))
+                        .doc("ch02-01-blocks.html").explain(format!("`{word}:` looks like a translation of a header, but the editor only knows these: {all_headers}"))
                         .hint(format!("Write `{r}`"));
                 } else {
                     let s = suggest(&word, HEADERS.iter().map(|(h, _)| *h));
-                    d = d.explain(format!("The valid block headers are: {all_headers}"));
+                    d = d
+                        .doc("ch02-01-blocks.html")
+                        .explain(format!("The valid block headers are: {all_headers}"));
                     if let Some(s) = s {
                         d = d.hint(format!("Did you mean `{s}:`?"));
                     }
@@ -159,12 +163,14 @@ pub(super) fn split_blocks(src: &str) -> Result<Vec<Block>, Diagnostic> {
         if let Some(fc) = first_content {
             let (l, c) = line_col(src, fc);
             return Err(Diagnostic::new(l, c, "No block headers found")
+                .doc("ch02-01-blocks.html")
                 .explain(format!(
                     "A specification consists of blocks that start with a header: {all_headers}"
                 ))
                 .hint("Start with `In: n∈N` (or `Be:` on its own line)."));
         }
         return Err(Diagnostic::plain("The specification is empty")
+            .doc("ch02-01-blocks.html")
             .hint("Start with an `In:` / `Be:` block."));
     }
 
@@ -187,7 +193,7 @@ pub(super) fn split_blocks(src: &str) -> Result<Vec<Block>, Diagnostic> {
             .find(|p| p.kind == b.kind && b.kind != BlockKind::Fn)
         {
             return Err(Diagnostic::new(b.line, 1, format!("Second `{}` block", b.kw))
-                .explain(format!("This kind of block was already started at line {} (`{}`). Each block may appear only once.", prev.line, prev.kw))
+                .doc("ch02-01-blocks.html").explain(format!("This kind of block was already started at line {} (`{}`). Each block may appear only once.", prev.line, prev.kw))
                 .hint("Merge the two blocks: separate the items with commas."));
         }
         if let Some(later) = seen.iter().find(|p| rank(p.kind) > rank(b.kind)) {
@@ -198,6 +204,7 @@ pub(super) fn split_blocks(src: &str) -> Result<Vec<Block>, Diagnostic> {
             };
             return Err(
                 Diagnostic::new(b.line, 1, format!("`{}` is in the wrong place", b.kw))
+                    .doc("ch02-01-blocks.html#block-order")
                     .explain(format!(
                         "It comes after `{}` (line {}). {what}",
                         later.kw, later.line
@@ -219,6 +226,7 @@ pub(super) fn split_blocks(src: &str) -> Result<Vec<Block>, Diagnostic> {
         if !blocks.iter().any(|b| b.kind == k) {
             let name = kind_name(k, hu);
             let mut d = Diagnostic::plain(format!("Missing `{name}:` block"))
+                .doc("ch02-01-blocks.html")
                 .explain(format!("This block is compulsory: {why}."));
             if k == BlockKind::Pre {
                 d = d.hint(format!("Add `{name}: -`"));

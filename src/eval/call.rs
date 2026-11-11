@@ -14,6 +14,7 @@ impl Eval<'_> {
                 .ok_or_else(|| {
                     let names: Vec<&str> = fs.iter().map(|(k, _)| k.as_str()).collect();
                     self.err(e, format!("`{}` has no field `{f}`", self.t(base)))
+                        .doc("ch03-04-records.html")
                         .explain(format!(
                             "Its fields are: {}. Field names are case-sensitive.",
                             names.join(", ")
@@ -36,6 +37,7 @@ impl Eval<'_> {
                                 e,
                                 format!("The tuple `{}` has no part `.{f}`", self.t(base)),
                             )
+                            .doc("ch03-04-records.html")
                             .explain(format!(
                                 "It has {} parts; use {}.",
                                 items.len(),
@@ -46,6 +48,7 @@ impl Eval<'_> {
             }
             other => Err(self
                 .err(e, format!("`{}` has no fields", self.t(base)))
+                .doc("ch03-04-records.html")
                 .explain(format!(
                     "`.{f}` works on records and tuples, but this is {}: {}.",
                     other.kind(),
@@ -148,7 +151,7 @@ impl Eval<'_> {
         if self.depth > MAX_DEPTH {
             return Err(self
                 .err(e, format!("`{name}` calls itself too deeply"))
-                .explain(format!(
+                .doc("ch05-00-functions.html").explain(format!(
                     "More than {MAX_DEPTH} nested function calls; the recursion probably never stops."
                 )));
         }

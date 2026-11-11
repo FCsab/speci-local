@@ -41,16 +41,19 @@ impl Eval<'_> {
                         v.kind()
                     ),
                 )
+                .doc("ch04-01-operators.html")
                 .explain(format!("Its value is {}.", v.short())));
         }
         let overflow = || {
             self.err(e, "Number overflow")
+                .doc("ch04-01-operators.html")
                 .explain("The result does not fit in a 64-bit whole number.")
         };
         Ok(match (op, &x, &y) {
             (BinOp::Div | BinOp::Mod | BinOp::IDiv, _, _) if y.num() == 0.0 => {
                 return Err(self
                     .err(e, format!("Division by zero in `{}`", self.t(e)))
+                    .doc("ch04-01-operators.html")
                     .explain(format!("`{}` is 0 here.", self.t(b))));
             }
             (BinOp::Add, Int(p), Int(q)) => Int(p.checked_add(*q).ok_or_else(overflow)?),
@@ -111,6 +114,7 @@ impl Eval<'_> {
                             e,
                             format!("`{}`: `|` (divides) needs whole numbers", self.t(e)),
                         )
+                        .doc("ch04-01-operators.html")
                         .explain(format!(
                             "`{}` is {} and `{}` is {}.",
                             self.t(a),
@@ -127,7 +131,7 @@ impl Eval<'_> {
                 let bad = if matches!(x, Value::Undef) { a } else { b };
                 return Err(self
                     .err(bad, format!("`{}` has no defined value", self.t(bad)))
-                    .explain("It is a pattern result with no meaning here, e.g. the index of a SEARCH that found nothing.")
+                    .doc("ch06-06-search.html").explain("It is a pattern result with no meaning here, e.g. the index of a SEARCH that found nothing.")
                     .hint("Guard it with an implication like `van -> …`."));
             }
             (Value::Str(p), Value::Str(q)) => p.cmp(q),
@@ -144,6 +148,7 @@ impl Eval<'_> {
                             self.t(b)
                         ),
                     )
+                    .doc("ch04-01-operators.html")
                     .explain(format!(
                         "The left side is {} ({}) and the right side is {} ({}).",
                         x.kind(),
@@ -170,7 +175,7 @@ impl Eval<'_> {
         {
             return Err(self
                 .err(e, "The two arrays don't have the same index range")
-                .explain(format!(
+                .doc("ch03-02-arrays.html").explain(format!(
                     "One is indexed {f}..{}, the other {g}..{}. Arrays are only equal if their index ranges match.",
                     last_index(*f, x.len()),
                     last_index(*g, y.len())

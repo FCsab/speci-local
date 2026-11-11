@@ -66,12 +66,13 @@ impl Eval<'_> {
                                 self.t(source)
                             ),
                         )
+                        .doc("ch06-00-theorems.html")
                         .explain(format!("The right side is {} ({}).", v.kind(), v.short())));
                 };
                 if items.len() != slots.len() {
                     return Err(self
                         .err(target, format!("`{}` has {} slots, but `{}` gives {} values", self.t(target), slots.len(), self.t(source), items.len()))
-                        .explain("MAX/MIN give (index, value); SEARCH gives (found, index); MIS gives (count, array); CONDMAX gives (found, index, value).")
+                        .doc("ch06-00-theorems.html").explain("MAX/MIN give (index, value); SEARCH gives (found, index); MIS gives (count, array); CONDMAX gives (found, index, value).")
                         .hint("Leave a slot empty to skip it, like `(,value)=MAX(…)` or `(van,,value)=CONDMAX(…)`."));
                 }
                 let mut ok = true;

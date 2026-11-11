@@ -76,7 +76,7 @@ impl<'a> Parser<'a> {
 
     fn nesting_error(&self, offset: usize) -> Diagnostic {
         self.err_at(offset, "The formula is nested too deeply")
-            .explain(format!(
+            .doc("ch05-00-functions.html").explain(format!(
                 "Brackets, signs, `not`s and quantifiers may be nested {MAX_NESTING} levels deep, and a chain of operators may have a few hundred parts."
             ))
             .hint("Split the formula: move a part of it into a function in the `Fn:` block.")
@@ -137,6 +137,7 @@ impl<'a> Parser<'a> {
         }
         if t.text == ":=" {
             d = d
+                .doc("appendix-01-grammar.html")
                 .explain("`:=` is not used in specifications.")
                 .hint("Use `=` instead of `:=`.");
         }
@@ -160,7 +161,7 @@ impl<'a> Parser<'a> {
                 if let Some(m) = reserved_meaning(&t.text) {
                     return Err(self
                         .err_at(t.start, format!("`{}` is a reserved word and can't be used as a name", t.text))
-                        .explain(format!("`{}` is {m}, so it is read as an operator, not as a {what}.", t.text))
+                        .doc("ch02-02-lexical.html#reserved-words").explain(format!("`{}` is {m}, so it is read as an operator, not as a {what}.", t.text))
                         .hint(match t.text.as_str() {
                             "exists" => "Rename it everywhere (declaration, postcondition and test data), e.g. to `van` or `talalt`.",
                             _ => "Choose another name and rename it everywhere, including the test data.",
@@ -214,6 +215,7 @@ impl<'a> Parser<'a> {
                 if decls.iter().any(|d| d.name == name) {
                     return Err(self
                         .err_at(t.start, format!("`{name}` is declared twice"))
+                        .doc("ch02-02-lexical.html#variable-names")
                         .hint("Remove or rename one of the declarations."));
                 }
                 decls.push(Decl {
@@ -228,7 +230,7 @@ impl<'a> Parser<'a> {
                 if !name.starts_with(|c: char| c.is_uppercase()) {
                     return Err(self
                         .err_at(t.start, format!("`{name}` looks like a variable but is defined with `=`"))
-                        .explain("`Name=Type` defines a new type (type names start with an uppercase letter). Variables are declared with `∈`.")
+                        .doc("ch03-05-aliases.html").explain("`Name=Type` defines a new type (type names start with an uppercase letter). Variables are declared with `∈`.")
                         .hint(format!("Write `{name}∈…` to declare a variable, or capitalise the name to define a type.")));
                 }
                 let ty = self.ty()?;
@@ -236,7 +238,7 @@ impl<'a> Parser<'a> {
             } else if self.is(":") {
                 return Err(self
                     .err_at(self.peek().start, "Use `∈` to declare a variable")
-                    .explain("`:` is only used for record fields like `(name:S x age:N)` and function signatures.")
+                    .doc("ch03-00-types.html").explain("`:` is only used for record fields like `(name:S x age:N)` and function signatures.")
                     .hint(format!("Write `{name}∈…` (or `{name} eleme …`).")));
             } else {
                 return Err(self.unexpected(&format!(
@@ -247,6 +249,7 @@ impl<'a> Parser<'a> {
                 if self.peek().tok == Tok::Eof {
                     return Err(self
                         .err_at(self.toks[self.pos - 1].start, "Trailing comma")
+                        .doc("ch02-01-blocks.html")
                         .explain("The last declaration in a block must not be followed by a comma.")
                         .hint("Delete this comma."));
                 }
@@ -279,7 +282,7 @@ impl<'a> Parser<'a> {
                     _ => {
                         return Err(self
                             .err_at(t.start, format!("`{n}` is not a type"))
-                            .explain("Sets/types start with an uppercase letter: N, Z, R, L, S, C (K) or a name you defined like `Student=(name:S x grade:N)`.")
+                            .doc("ch03-01-sets.html#elementary-sets").explain("Sets/types start with an uppercase letter: N, Z, R, L, S, C (K) or a name you defined like `Student=(name:S x grade:N)`.")
                             .hint(did_you_mean(&n.to_uppercase(), ["N", "Z", "R", "L", "S", "C", "K"]).trim().to_string()));
                     }
                 }
@@ -312,6 +315,7 @@ impl<'a> Parser<'a> {
                                 self.peek().start,
                                 "Record fields are separated by ` x `, not commas",
                             )
+                            .doc("ch03-04-records.html#records")
                             .explain("A record is a direct product of its fields.")
                             .hint("Write it like `(name:S x grade:N)`."));
                     }
@@ -409,6 +413,7 @@ impl<'a> Parser<'a> {
         if self.is("(") {
             return Err(self
                 .err_at(self.peek().start, format!("`{name}` has no signature"))
+                .doc("ch05-00-functions.html")
                 .explain(
                     "Each function starts with its signature, then a comma and the definition.",
                 )
@@ -433,6 +438,7 @@ impl<'a> Parser<'a> {
                     dt.start,
                     format!("The signature is for `{name}`, but this defines `{def}`"),
                 )
+                .doc("ch05-00-functions.html")
                 .explain(
                     "Each `Fn:` header holds one function: its signature, then its definition.",
                 )
@@ -459,7 +465,7 @@ impl<'a> Parser<'a> {
         if self.is(",") {
             return Err(self
                 .err_at(self.peek().start, "Only one function per `Fn:` header")
-                .explain("The online editor reads a comma-separated list of functions as a syntax error.")
+                .doc("ch05-00-functions.html").explain("The online editor reads a comma-separated list of functions as a syntax error.")
                 .hint("Start the next function on a new line with its own `Fn:` header."));
         }
         if self.peek().tok != Tok::Eof {
@@ -468,6 +474,7 @@ impl<'a> Parser<'a> {
         if funcs.contains_key(&name) {
             return Err(self
                 .err_at(t.start, format!("`{name}` is defined twice"))
+                .doc("ch05-00-functions.html")
                 .hint("Keep only one definition."));
         }
         funcs.insert(

@@ -39,7 +39,7 @@ impl Eval<'_> {
             }
             return Err(self
                 .err(e, "SELECT found no matching element")
-                .explain(format!("No `{var}` ≥ {b} satisfies `{}` (searched a million values).", self.t(&args[0])))
+                .doc("ch06-05-select.html").explain(format!("No `{var}` ≥ {b} satisfies `{}` (searched a million values).", self.t(&args[0])))
                 .hint("SELECT assumes a match exists. Prove it in the precondition (e.g. `∃i∈[1..n]:(…)`), or use SEARCH if it may not exist."));
         }
         let end = self.int(hi.unwrap(), env, "The range end")?;
@@ -60,6 +60,7 @@ impl Eval<'_> {
                         at,
                         format!("SUM needs numbers, but `{}` is {}", s.t(at), v.kind()),
                     )
+                    .doc("ch06-01-sum.html")
                     .explain(format!("Its value is {}.", v.short()))),
             }
         };
@@ -184,7 +185,7 @@ impl Eval<'_> {
                     (None, true) => Ok(Value::Tuple(vec![Value::Bool(false), Value::Undef, Value::Undef], names)),
                     (None, false) => Err(self
                         .err(e, format!("{name} over an empty range ({b}..{end})"))
-                        .explain(format!("{name} needs at least one element, but the range `{}..{}` is empty for this test case.", self.t(lo), self.t(hi.unwrap())))
+                        .doc("ch06-03-max-min.html").explain(format!("{name} needs at least one element, but the range `{}..{}` is empty for this test case.", self.t(lo), self.t(hi.unwrap())))
                         .hint(format!("Require a non-empty range in the precondition (e.g. `n>0`), or use COND{name} if the range may be empty."))),
                 }
             }

@@ -98,7 +98,7 @@ impl<'a> Eval<'a> {
         if hi.saturating_sub(lo) >= MAX_RANGE {
             return Err(self
                 .err(e, format!("The range {lo}..{hi} is too large"))
-                .explain(format!("Ranges may have at most {MAX_RANGE} elements here. A bound is probably wrong (or a test value is much larger than intended).")));
+                .doc("ch08-00-evaluation.html").explain(format!("Ranges may have at most {MAX_RANGE} elements here. A bound is probably wrong (or a test value is much larger than intended).")));
         }
         Ok(())
     }
@@ -119,7 +119,7 @@ impl<'a> Eval<'a> {
             Value::Bool(b) => Ok(b),
             v => Err(self
                 .err(e, format!("`{}` should be true or false, but it is {}", self.t(e), v.kind()))
-                .explain(format!("Its value is {}. Conditions (and, or, ->, quantifier bodies, COUNT/SEARCH conditions…) need a logical value.", v.short()))),
+                .doc("ch04-01-operators.html").explain(format!("Its value is {}. Conditions (and, or, ->, quantifier bodies, COUNT/SEARCH conditions…) need a logical value.", v.short()))),
         }
     }
 
@@ -129,7 +129,7 @@ impl<'a> Eval<'a> {
             Value::Real(r) if r.fract() == 0.0 => Ok(r as i64),
             Value::Undef => Err(self
                 .err(e, format!("{what} `{}` has no defined value", self.t(e)))
-                .explain("It comes from a pattern result that is meaningless here, e.g. the index of a SEARCH that found nothing.")
+                .doc("ch06-06-search.html").explain("It comes from a pattern result that is meaningless here, e.g. the index of a SEARCH that found nothing.")
                 .hint("Only use it when the search succeeded, e.g. `van -> …`.")),
             v => Err(self.err(e, format!("{what} `{}` must be a whole number, but it is {}", self.t(e), v.short()))),
         }
@@ -194,7 +194,7 @@ impl<'a> Eval<'a> {
     #[cold]
     fn too_deep(&self, e: &Expr) -> Diagnostic {
         self.err(e, "The evaluation is nested too deeply")
-            .explain(format!(
+            .doc("ch05-00-functions.html").explain(format!(
                 "More than {MAX_NESTING} sub-expressions are being evaluated inside each other. A function probably calls itself without ever stopping."
             ))
     }
@@ -231,7 +231,7 @@ impl<'a> Eval<'a> {
         if self.steps > MAX_STEPS {
             return Err(self
                 .err(e, "Evaluation takes too long")
-                .explain("The specification needed more than 50 million steps on this test case. A range is probably much larger than intended."));
+                .doc("ch08-00-evaluation.html").explain("The specification needed more than 50 million steps on this test case. A range is probably much larger than intended."));
         }
         Ok(())
     }
@@ -428,6 +428,7 @@ impl<'a> Eval<'a> {
             let Value::Arr { from, items } = v else {
                 return Err(self
                     .err(e, format!("`{}` can't be indexed", self.t(base)))
+                    .doc("ch03-02-arrays.html#indexing")
                     .explain(format!(
                         "Only arrays (and matrices) can be indexed with `[…]`, but this is {}: {}.",
                         v.kind(),
@@ -452,7 +453,7 @@ impl<'a> Eval<'a> {
                 };
                 return Err(self
                     .err(ie, format!("`{}`: index {i} is out of range", self.t(e)))
-                    .explain(format!("`{name}` has {len} element(s), {range}."))
+                    .doc("ch03-02-arrays.html#indexing").explain(format!("`{name}` has {len} element(s), {range}."))
                     .hint("Check the loop bounds; when you look at `x[i+1]`, the loop must stop at n-1."));
             };
             v = item;
