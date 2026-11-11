@@ -96,6 +96,10 @@ impl App {
             ui.separator();
             ui.label("Font size");
             ui.add(egui::Slider::new(&mut self.font, 12.0..=28.0).suffix(" px"));
+            ui.separator();
+            if ui.checkbox(&mut self.vim, "Vim keybindings").changed() {
+                self.vim_state.reset();
+            }
             if self.narrow {
                 ui.separator();
                 ui.label("Theme");
@@ -104,6 +108,20 @@ impl App {
         })
         .response
         .on_hover_text("Settings");
+    }
+
+    /// Switches the Vim keybindings of the code editors on and off.
+    fn vim_toggle(&mut self, ui: &mut egui::Ui) {
+        let label = RichText::new("Vim").monospace();
+        if ui
+            .toggle_value(&mut self.vim, label)
+            .on_hover_text(
+                "Vim keybindings in the editors\nEsc: Normal mode · i/a/o: Insert mode · v/V: Visual mode",
+            )
+            .changed()
+        {
+            self.vim_state.reset();
+        }
     }
 
     /// Specification / Stuki tabs.
@@ -174,6 +192,8 @@ impl App {
                 self.settings_menu(ui);
                 ui.separator();
                 if self.tool == Tool::Spec {
+                    self.vim_toggle(ui);
+                    ui.separator();
                     ui.toggle_value(&mut self.show_v, I_VIEW)
                         .on_hover_text("Evaluation pane");
                     ui.toggle_value(&mut self.show_d, I_DATA)
@@ -242,6 +262,7 @@ impl App {
                 st.path.as_deref(),
                 "structogram",
                 None,
+                None,
             );
             return;
         }
@@ -255,6 +276,7 @@ impl App {
         .into_iter()
         .find(|(id, _)| ui.memory(|m| m.has_focus(*id)))
         .and_then(|(id, text)| Some(line_col(text?, cursor_of(ui.ctx(), id)?.1)));
+        let mode = self.vim.then(|| self.vim_state.status());
         ui::status_bar(
             ui,
             self.dirty(),
@@ -262,6 +284,7 @@ impl App {
             self.path.as_deref(),
             "specification",
             cursor,
+            mode.as_deref(),
         );
     }
 }

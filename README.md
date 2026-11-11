@@ -244,6 +244,17 @@ sudo apt-get install libxkbcommon-dev libgtk-3-dev
 
 On macOS, `scripts/bundle-macos.sh` builds `speci-local.app` (a universal binary for Apple Silicon and Intel) and zips it.
 
+### Nix
+
+```sh
+nix run github:FCsab/speci-local            # run without installing
+nix profile install github:FCsab/speci-local
+nix develop                                 # shell with cargo, clippy, rustfmt, rust-analyzer
+```
+
+Or add `inputs.speci-local.url = "github:FCsab/speci-local";` to a NixOS / Home Manager flake and use `speci-local.packages.${system}.default`.
+The flake reads the version from `Cargo.toml` and the crate hashes from `Cargo.lock`, so it needs no edits when either changes; `flake.lock` (nixpkgs) is bumped by a weekly pull request.
+
 ### Android
 
 The Android app is the `android/` crate, a thin wrapper around the same library, built with [cargo-apk](https://github.com/rust-mobile/cargo-apk):

@@ -28,6 +28,7 @@ fn harness(text: &str) -> Harness<'static, S> {
                     &[],
                     &mut s.comp,
                     "",
+                    None,
                 );
             },
             S {
@@ -294,4 +295,156 @@ fn text_literals_are_highlighted_like_the_parser_reads_them() {
     let job = highlight_data("x: [10, 20, 30, 40]", f, &p, &[]);
     assert_eq!(job.text, "x: [10, 20, 30, 40]");
     assert!(job.sections.len() <= 11, "{} runs", job.sections.len());
+}
+
+mod vim_keys {
+    use super::super::vim::{Mode, run_keys};
+
+    /// (text, cursor, mode) after `keys` from char `p`; `⎋` is Escape.
+    fn k(text: &str, p: usize, keys: &str) -> (String, usize, Mode) {
+        run_keys(text, p, keys)
+    }
+
+    #[test]
+    fn motions() {
+        let t = "foo bar.baz\n  qux";
+        assert_eq!(k(t, 0, "w").1, 4);
+        assert_eq!(k(t, 0, "ww").1, 7);
+        assert_eq!(k(t, 0, "W").1, 4);
+        assert_eq!(k(t, 0, "e").1, 2);
+        assert_eq!(k(t, 0, "$").1, 10);
+        assert_eq!(k(t, 5, "0").1, 0);
+        assert_eq!(k(t, 5, "j").1, 16); // clamped to the end of "  qux"
+        assert_eq!(k(t, 0, "j^").1, 14);
+        assert_eq!(k(t, 0, "G").1, 14);
+        assert_eq!(k(t, 14, "gg").1, 0);
+        assert_eq!(k(t, 0, "fb").1, 4);
+        assert_eq!(k(t, 0, "fa;").1, 9);
+        assert_eq!(k(t, 0, "tz").1, 9);
+        assert_eq!(k(t, 7, "b").1, 4);
+        assert_eq!(k("f(a, (b))", 1, "%").1, 8);
+    }
+
+    #[test]
+    fn operators() {
+        assert_eq!(k("foo bar baz", 0, "dw").0, "bar baz");
+        assert_eq!(k("foo bar baz", 0, "d2w").0, "baz");
+        assert_eq!(k("foo bar baz", 0, "2dw").0, "baz");
+        assert_eq!(k("foo bar\nnext", 4, "dw").0, "foo \nnext");
+        assert_eq!(k("foo bar baz", 0, "cwxy⎋").0, "xy bar baz");
+        assert_eq!(k("a\nb\nc", 2, "dd"), ("a\nc".into(), 2, Mode::Normal));
+        assert_eq!(k("a\nb\nc", 4, "dd").0, "a\nb");
+        assert_eq!(k("a\nb\nc", 0, "2dd").0, "c");
+        assert_eq!(k("foo bar", 4, "D").0, "foo ");
+        assert_eq!(k("x = f(a, b)", 6, "ci(z⎋").0, "x = f(z)");
+        assert_eq!(k("say \"hi there\"", 6, "di\"").0, "say \"\"");
+        assert_eq!(k("foo bar baz", 5, "daw").0, "foo baz");
+        assert_eq!(k("  ab\ncd", 3, "cc").0, "  \ncd");
+        assert_eq!(k("ab\ncd", 0, ">j").0, "  ab\n  cd");
+        assert_eq!(k("  ab", 0, "<<").0, "ab");
+        assert_eq!(k("abc", 0, "x"), ("bc".into(), 0, Mode::Normal));
+        assert_eq!(k("abc", 0, "~~").0, "ABc");
+        assert_eq!(k("abc", 1, "rz").0, "azc");
+        assert_eq!(k("a\n  b", 0, "J").0, "a b");
+    }
+
+    #[test]
+    fn yank_put_undo_repeat() {
+        assert_eq!(k("a\nb", 0, "yyp").0, "a\na\nb");
+        assert_eq!(k("a\nb", 2, "yyP").0, "a\nb\nb");
+        assert_eq!(k("a\nb", 2, "yyp").0, "a\nb\nb");
+        assert_eq!(k("ab", 0, "xp").0, "ba");
+        assert_eq!(k("foo bar", 0, "ywP").0, "foo foo bar");
+        assert_eq!(k("abc", 0, "xxu").0, "bc");
+        assert_eq!(k("abc", 0, "xxuu").0, "abc");
+        assert_eq!(k("abc", 0, "xxuu\x12").0, "bc");
+        assert_eq!(k("a b c d", 0, "dw..").0, "d");
+        assert_eq!(k("x\ny", 0, "Ahi⎋j.").0, "xhi\nyhi");
+        assert_eq!(k("abc", 0, "ihi⎋u").0, "abc");
+    }
+
+    #[test]
+    fn insert_commands() {
+        assert_eq!(k("ab", 0, "ix⎋"), ("xab".into(), 0, Mode::Normal));
+        assert_eq!(k("ab", 0, "ax⎋").0, "axb");
+        assert_eq!(k("ab", 1, "Ix⎋").0, "xab");
+        assert_eq!(k("ab", 0, "Ax⎋").0, "abx");
+        assert_eq!(k("  ab", 2, "ox⎋").0, "  ab\n  x");
+        assert_eq!(k("ab", 0, "Ox⎋").0, "x\nab");
+        assert_eq!(k("ab", 0, "i").2, Mode::Insert);
+    }
+
+    #[test]
+    fn visual() {
+        assert_eq!(k("foo bar", 0, "vlld").0, " bar");
+        assert_eq!(k("foo bar", 0, "veyP").0, "foofoo bar");
+        assert_eq!(k("a\nb\nc", 0, "Vjd").0, "c");
+        assert_eq!(k("foo bar", 4, "viwcx⎋").0, "foo x");
+        assert_eq!(k("abc", 0, "vlU").0, "ABc");
+        assert_eq!(k("abc", 0, "v⎋").2, Mode::Normal);
+    }
+}
+
+#[test]
+fn vim_keys_through_the_widget() {
+    struct V {
+        text: String,
+        comp: Completion,
+        vim: Vim,
+        first: bool,
+    }
+    let id = Id::unique("t-vim-editor");
+    let mut h = Harness::builder()
+        .with_context_setup(crate::app::fonts)
+        .build_ui_state(
+            move |ui, s: &mut V| {
+                if s.first {
+                    s.first = false;
+                    set_cursor(ui.ctx(), id, 0);
+                }
+                code_editor(
+                    ui,
+                    id,
+                    &mut s.text,
+                    Lang::Spec,
+                    &[],
+                    &[],
+                    &mut s.comp,
+                    "",
+                    Some(&mut s.vim),
+                );
+            },
+            V {
+                text: "foo bar\nbaz".into(),
+                comp: Completion::default(),
+                vim: Vim::default(),
+                first: true,
+            },
+        );
+    h.run_steps(3);
+    // Normal mode: typed letters are commands
+    for t in ["d", "w"] {
+        h.event(egui::Event::Text(t.into()));
+        h.run_steps(2);
+    }
+    assert_eq!(h.state().text, "bar\nbaz");
+    // Insert mode types, Escape goes back without leaving the editor
+    for t in ["A", "!"] {
+        h.event(egui::Event::Text(t.into()));
+        h.run_steps(2);
+    }
+    assert_eq!(h.state().text, "bar!\nbaz");
+    h.key_press(Key::Escape);
+    h.run_steps(2);
+    assert!(!h.state().vim.inserting());
+    assert!(h.ctx.memory(|m| m.has_focus(id)));
+    for t in ["j", "x", "u"] {
+        h.event(egui::Event::Text(t.into()));
+        h.run_steps(2);
+    }
+    assert_eq!(h.state().text, "bar!\nbaz");
+    h.event(egui::Event::Text("x".into()));
+    h.run_steps(2);
+    // `j` keeps the column (clamped to "baz"), so `x` takes the z
+    assert_eq!(h.state().text, "bar!\nba");
 }

@@ -121,6 +121,7 @@ impl App {
                         &errors,
                         &mut self.comp,
                         "Be:\nn∈N\n\nKi:\n…",
+                        self.vim.then_some(&mut self.vim_state),
                     );
                 });
         });
@@ -238,6 +239,7 @@ impl App {
                         &errors,
                         &mut self.comp,
                         "n: 3\nnums: [1, 2, 3]",
+                        self.vim.then_some(&mut self.vim_state),
                     );
                 });
         });
