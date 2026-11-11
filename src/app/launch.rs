@@ -51,7 +51,8 @@ pub(super) fn create(cc: &eframe::CreationContext, file: Option<PathBuf>) -> App
             font: if platform::MOBILE { 15.0 } else { 18.0 },
             ..App::default()
         });
-    if !app.no_update_check {
+    // tests must not hit the network: a fresh release would pop a modal over the UI under test
+    if !app.no_update_check && !cfg!(test) {
         app.update_rx = Some(super::update::check(cc.egui_ctx.clone()));
     }
     // `speci-local file.sp` (also how double-clicking a .sp file opens it)

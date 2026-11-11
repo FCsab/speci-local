@@ -30,6 +30,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - if: runner.os == 'Linux'
+        timeout-minutes: 10
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libgtk-3-dev
       - run: cargo test --release --locked
       - if: runner.os != 'macOS'
