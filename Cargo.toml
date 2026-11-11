@@ -5,7 +5,7 @@ default-members = ["."]
 
 # the one version number for every platform (the release workflow reads it from here)
 [workspace.package]
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 
 [package]
