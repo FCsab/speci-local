@@ -362,7 +362,7 @@ fn deleting_a_test_keeps_results_aligned() {
     }
 }
 
-/// The Konami code (↑↑↓↓←→←→BA) shows the hidden Auto Stuki button, or hides it again.
+/// The Konami code (↑↑↓↓←→←→BA) shows the hidden From spec button, or hides it again.
 fn konami(h: &mut Harness<'static, App>) {
     use egui::Key::*;
     for k in [
@@ -374,11 +374,11 @@ fn konami(h: &mut Harness<'static, App>) {
     h.run_steps(2);
 }
 
-/// Auto Stuki: the button on the Stuki tab (hidden until the Konami code) builds the
+/// From spec: the button on the Stuki tab (hidden until the Konami code) builds the
 /// structograms from the specification (the sample counts odd numbers), and a broken
 /// specification leaves them alone.
 #[test]
-fn auto_stuki_builds_structograms_from_the_spec() {
+fn structograms_from_the_spec() {
     use crate::stuki::model::Kind;
     use crate::ui::I_WAND;
     let mut h = Harness::builder()
@@ -391,7 +391,7 @@ fn auto_stuki_builds_structograms_from_the_spec() {
             a
         });
     h.run_steps(4);
-    let button = format!("{I_WAND}  Auto Stuki");
+    let button = format!("{I_WAND}  From spec");
     assert_eq!(h.query_all_by_label(&button).count(), 0, "hidden at first");
     // ↑↑↓↓ alone is not the code; an extra ↑ in front doesn't spoil it
     h.key_press(egui::Key::ArrowUp);
@@ -411,7 +411,7 @@ fn auto_stuki_builds_structograms_from_the_spec() {
 
     // a broken specification changes nothing
     h.state_mut().doc.spec = "Be:\nn∈N\nKi:\nUf:\n".into();
-    h.get_by_label(&format!("{I_WAND}  Auto Stuki")).click();
+    h.get_by_label(&format!("{I_WAND}  From spec")).click();
     h.run_steps(4);
     assert!(h.state().stuki.status.starts_with("Fix the specification"));
     assert_eq!(h.state().stuki.program.diagrams[0].body.len(), 4);
@@ -437,7 +437,7 @@ fn stuki_runs_the_test_cases() {
         });
     h.run_steps(4);
     konami(&mut h);
-    h.get_by_label(&format!("{I_WAND}  Auto Stuki")).click();
+    h.get_by_label(&format!("{I_WAND}  From spec")).click();
     h.run_steps(4);
     h.get_by_label(&format!("{I_RUN}  Run tests")).click();
     let wait = |h: &mut Harness<'static, App>| {

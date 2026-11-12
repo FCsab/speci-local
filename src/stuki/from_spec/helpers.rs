@@ -1,4 +1,4 @@
-//! Small helpers of Auto Stuki: building nodes and reading the expressions.
+//! Small helpers of From spec: building nodes and reading the expressions.
 
 use super::*;
 

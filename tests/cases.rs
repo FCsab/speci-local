@@ -19,10 +19,10 @@ fn green(spec: &str, tests: &[&str]) {
             render(&o.diags, spec, t)
         );
     }
-    auto_stuki_agrees(&s, tests);
+    structograms_agree(&s, tests);
 }
 
-fn auto_stuki_agrees(spec: &speci_local::parser::Spec, tests: &[&str]) {
+fn structograms_agree(spec: &speci_local::parser::Spec, tests: &[&str]) {
     use speci_local::stuki::{from_spec::from_spec, run::Runner};
     let built = from_spec(spec, "");
     if !built.unset.is_empty() {

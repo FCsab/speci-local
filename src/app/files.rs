@@ -175,7 +175,7 @@ impl App {
         }
     }
 
-    /// Auto Stuki: structograms built from the specification replace the current ones.
+    /// From spec: structograms built from the specification replace the current ones.
     pub(super) fn stuki_from_spec(&mut self) {
         let spec = match crate::parser::parse(&self.doc.spec) {
             Ok(s) => s,

@@ -163,7 +163,7 @@ impl Compiler<'_> {
     }
 }
 
-/// `Be: n, x` / `In: n, x` and `Ki: s, db` / `Out: s, db`: the statements Auto Stuki starts and
+/// `Be: n, x` / `In: n, x` and `Ki: s, db` / `Out: s, db`: the statements From spec starts and
 /// ends with, showing the inputs and the outputs.
 pub(super) fn is_io(text: &str) -> bool {
     let t = text.trim_start();

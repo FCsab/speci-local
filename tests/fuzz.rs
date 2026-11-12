@@ -162,7 +162,7 @@ fn exercise(spec: &str, data: &str) {
     }
     let _ = trace_test(&parsed, data, &AtomicBool::new(false));
     let _ = scaffold(&parsed, data);
-    // Auto Stuki works on anything the parser accepts
+    // From spec works on anything the parser accepts
     let built = speci_local::stuki::from_spec::from_spec(&parsed, "fuzz");
     let verdicts = speci_local::stuki::run::run_tests(
         &built.program,

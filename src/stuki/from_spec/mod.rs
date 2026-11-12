@@ -1,4 +1,4 @@
-//! Auto Stuki: structograms built from a specification.
+//! From spec: structograms built from a specification.
 //!
 //! The postcondition is split at its `and`s, and each part that gives an output its value becomes
 //! steps of the main structogram: `x=…` an assignment, the patterns (`SUM`, `COUNT`, `MAX`,
