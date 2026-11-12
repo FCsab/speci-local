@@ -235,7 +235,7 @@ pub fn highlight_data(text: &str, font: FontId, p: &Palette, errors: &[usize]) -
                 let w = &rest[..n];
                 if rest[n..].trim_start().starts_with(':') {
                     (n, p.key)
-                } else if w == "true" || w == "false" {
+                } else if matches!(w, "true" | "false" | "igaz" | "hamis") {
                     (n, p.keyword)
                 } else {
                     (n, p.string)

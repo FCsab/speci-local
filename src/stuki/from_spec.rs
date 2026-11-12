@@ -12,6 +12,7 @@
 
 use super::model::{Case, Diagram, Kind, Node, Program, fresh_id};
 use super::rich::Rich;
+use crate::eval::result_names;
 use crate::parser::{BinOp, Expr, ExprKind, Role, Spec, Type, macro_alias, vars_in};
 use std::collections::HashSet;
 
@@ -235,12 +236,34 @@ fn needs_parens(s: &str) -> bool {
     false
 }
 
-fn contains_lift(e: &Expr) -> bool {
+/// `MAX(…).2` / `MAX(…).maxval`: a pattern with several results, and the position of the one used.
+fn projection(e: &Expr) -> Option<(&Expr, usize)> {
+    let ExprKind::Field(m, f) = &*e.kind else {
+        return None;
+    };
+    let ExprKind::Macro { name, .. } = &*m.kind else {
+        return None;
+    };
+    let names = result_names(canonical(name));
+    let k = f
+        .parse::<usize>()
+        .ok()
+        .and_then(|i| i.checked_sub(1))
+        .or_else(|| names.iter().position(|n| n == f))?;
+    (k < names.len()).then_some((m, k))
+}
+
+/// A part of an expression whose value is computed by steps of its own.
+fn lifted(e: &Expr) -> bool {
     match &*e.kind {
         ExprKind::Quant { .. } => true,
-        ExprKind::Macro { name, .. } if single_valued(name) => true,
-        _ => e.children().into_iter().any(contains_lift),
+        ExprKind::Macro { name, .. } => single_valued(name),
+        _ => projection(e).is_some(),
     }
+}
+
+fn contains_lift(e: &Expr) -> bool {
+    lifted(e) || e.children().into_iter().any(contains_lift)
 }
 
 fn stray(e: &Expr, statement: bool) -> bool {
@@ -265,6 +288,7 @@ fn stray(e: &Expr, statement: bool) -> bool {
                 || conjuncts(body).into_iter().any(|p| stray(p, true))
         }
         ExprKind::Macro { name, .. } if !single_valued(name) => true,
+        _ if let Some((m, _)) = projection(e) => m.children().into_iter().any(|c| stray(c, false)),
         _ => match equation(e) {
             Some((l, r)) if statement => side(l) || side(r),
             _ => e.children().into_iter().any(|c| stray(c, false)),
@@ -610,15 +634,29 @@ impl Gen<'_> {
                 self.pattern(name, var, lo, Some(hi), args, &[Some(t.clone())], out);
                 t
             }
+            _ if let Some((m, k)) = projection(e) => {
+                let ExprKind::Macro {
+                    name,
+                    var,
+                    lo,
+                    hi,
+                    args,
+                } = &*m.kind
+                else {
+                    unreachable!()
+                };
+                let t = self.fresh_slots(name, args);
+                let targets: Vec<_> = t.iter().cloned().map(Some).collect();
+                self.pattern(name, var, lo, hi.as_ref(), args, &targets, out);
+                t[k].clone()
+            }
             _ => {
                 // compute the outermost patterns first, then use their variables
                 let mut parts = vec![];
                 let mut pending = vec![e];
                 let mut lifts = vec![];
                 while let Some(x) = pending.pop() {
-                    let lift = matches!(&*x.kind, ExprKind::Quant { .. })
-                        || matches!(&*x.kind, ExprKind::Macro { name, .. } if single_valued(name));
-                    if lift {
+                    if lifted(x) {
                         lifts.push(x);
                     } else {
                         let mut c = x.children();
@@ -1587,16 +1625,28 @@ mod tests {
     }
 
     #[test]
+    fn a_part_of_a_pattern_becomes_steps() {
+        assert_eq!(
+            table("s∈Z\nEf:\nn>0\nUf:\ns=MAX(i=1..n, x[i]).maxval+1"),
+            "== T\nvars maxind:Egész, maxért:Egész, i:Egész\nmaxind:=1\nmaxért:=x[1]\n\
+             [while i=2..n]\n  [if x[i]>maxért]\n    maxind:=i\n    maxért:=x[i]\ns:=maxért+1\n"
+        );
+        // issue #5: the maximum inside the condition of a filter
+        let out = outline_of(
+            "Be: nDb∈N, tDb∈N, h∈Z[1..tDb,1..nDb]\nKi: db∈N, maxosak∈N[1..db]\nEf: 1<=nDb\n\
+             Uf: (db, maxosak)=KIVÁLOGAT(i=1..tDb,∃j∈[1..nDb]:(h[i,j] = MAX(i=1..tDb,h[i,j]).2),i)\n",
+        );
+        assert!(!out.contains("(!)") && !out.contains("MAX"), "{out}");
+    }
+
+    #[test]
     fn a_pattern_that_cannot_become_steps_is_kept_tinted() {
         let spec = parse(&format!(
-            "{TABLE}s∈Z\nEf:\nn>0\nUf:\ns=MAX(i=1..n, x[i]).maxval{REST}"
+            "{TABLE}s∈Z\nEf:\nn>0\nUf:\ns=MAX(i=1..n, x[i]).3{REST}"
         ))
         .unwrap();
         let g = from_spec(&spec, "T");
         assert_eq!(g.untranslated, 1);
-        assert_eq!(
-            outline(&g.program),
-            "== T\ns=MAX(i=1..n, x[i]).maxval (!)\n"
-        );
+        assert_eq!(outline(&g.program), "== T\ns=MAX(i=1..n, x[i]).3 (!)\n");
     }
 }

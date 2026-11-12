@@ -2,7 +2,7 @@
 
 use super::Lang;
 use super::highlight::{HEADERS, KEYWORDS, take_while};
-use crate::parser::MACROS;
+use crate::parser::{MACROS, macro_alias};
 use eframe::egui::Id;
 
 #[derive(Clone, Debug)]
@@ -139,13 +139,32 @@ fn spec_items(symbols: &[Item], line_start: bool, after_elem: bool) -> Vec<Item>
         v.extend(symbols.iter().filter(|s| s.kind == Type).cloned());
         return v;
     }
-    for (name, _, _, usage) in MACROS {
-        let snippet = match *name {
-            "SELECT" => "SELECT(i>=1, $)".to_string(),
+    // the Hungarian names of the patterns, after the English ones
+    let hu = [
+        "SZUMMA",
+        "MEGSZÁMOL",
+        "ELDÖNT",
+        "MIND",
+        "KERES",
+        "KIVÁLASZT",
+        "MÁSOL",
+        "KIVÁLOGAT",
+        "FELTMAX",
+        "FELTMIN",
+    ];
+    let names = MACROS.iter().map(|m| m.0).chain(hu);
+    for name in names {
+        let canon = macro_alias(name).unwrap_or(name);
+        let Some((.., usage)) = MACROS.iter().find(|m| m.0 == canon) else {
+            continue;
+        };
+        let usage = usage.replace(canon, name);
+        let snippet = match canon {
+            "SELECT" => format!("{name}(i>=1, $)"),
             "CONDMAX" | "CONDMIN" => format!("{name}(i=1..n, $, )"),
             _ => format!("{name}(i=1..n, $)"),
         };
-        v.push(item(name, &snippet, usage, Macro));
+        v.push(item(name, &snippet, &usage, Macro));
     }
     v.push(item("forall", "∀i∈[1..n]:($)", "∀ for all", Keyword));
     v.push(item("exists", "∃i∈[1..n]:($)", "∃ there exists", Keyword));
@@ -159,10 +178,13 @@ fn spec_items(symbols: &[Item], line_start: bool, after_elem: bool) -> Vec<Item>
         ("not", "negation"),
         ("és", "logical and"),
         ("vagy", "logical or"),
+        ("nem", "negation"),
         ("mod", "remainder"),
         ("div", "whole-number division"),
         ("true", ""),
         ("false", ""),
+        ("igaz", ""),
+        ("hamis", ""),
     ] {
         v.push(item(k, k, d, Keyword));
     }
@@ -173,6 +195,10 @@ fn spec_items(symbols: &[Item], line_start: bool, after_elem: bool) -> Vec<Item>
         ("abs", "absolute value"),
         ("sqrt", "square root"),
         ("round", "nearest whole number"),
+        ("hossz", "number of elements"),
+        ("tól", "first index"),
+        ("ig", "last index"),
+        ("kerekít", "nearest whole number"),
     ] {
         v.push(item(f, &format!("{f}($)"), d, Func));
     }
@@ -192,6 +218,8 @@ fn data_items(symbols: &[Item], line_start: bool) -> Vec<Item> {
     } else {
         v.push(item("true", "true", "", Kind::Keyword));
         v.push(item("false", "false", "", Kind::Keyword));
+        v.push(item("igaz", "igaz", "", Kind::Keyword));
+        v.push(item("hamis", "hamis", "", Kind::Keyword));
     }
     v
 }

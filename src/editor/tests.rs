@@ -69,7 +69,7 @@ fn completes_declared_names_and_navigates() {
         .iter()
         .map(|i| i.label.clone())
         .collect();
-    assert_eq!(labels, ["kisebb"]);
+    assert_eq!(labels, ["kisebb", "KIVÁLASZT", "KIVÁLOGAT"]);
     h.key_press(Key::Enter);
     h.run_steps(3);
     assert_eq!(h.state().text, "Uf: x=kisebb()");
@@ -225,16 +225,18 @@ fn suggestions_depend_on_the_context() {
     assert_eq!(suggestions("Be: n∈N\n", "K", Lang::Spec)[0], "Ki:");
     assert_eq!(
         suggestions("Uf: x=", "s", Lang::Spec),
-        ["sqrt", "szamok", "SUM", "SELECT", "SEARCH"]
+        ["sqrt", "szamok", "SUM", "SELECT", "SEARCH", "SZUMMA"]
     );
     assert_eq!(
         suggestions("Uf: x=", "S", Lang::Spec),
-        ["SUM", "SELECT", "SEARCH", "sqrt", "szamok"]
+        ["SUM", "SELECT", "SEARCH", "SZUMMA", "sqrt", "szamok"]
     );
     assert!(suggestions("Uf: x=", "szamok", Lang::Spec).is_empty());
     assert!(suggestions("Uf: x=2", "s", Lang::Spec).is_empty());
     assert_eq!(suggestions("n: 1\n", "sz", Lang::Data), ["szamok"]);
     assert_eq!(suggestions("ok: ", "t", Lang::Data), ["true"]);
+    assert_eq!(suggestions("ok: ", "ig", Lang::Data), ["igaz"]);
+    assert_eq!(suggestions("Uf: x=", "KIVÁLO", Lang::Spec), ["KIVÁLOGAT"]);
     assert!(suggestions("# ", "sz", Lang::Data).is_empty());
     assert!(suggestions("Uf: ", "s", Lang::Spec).len() <= 12);
 }

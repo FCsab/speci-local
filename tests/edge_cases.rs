@@ -45,6 +45,14 @@ fn text_closed_by_a_typographic_quote() {
 }
 
 #[test]
+fn hungarian_logical_values_in_test_data() {
+    let s = spec("Be: s∈S\nKi: b∈L\nEf: -\nUf: b=(s=\"abc\")");
+    assert!(run_test(&s, "s: abc\nb: igaz").pass);
+    assert!(run_test(&s, "s: abd\nb: hamis").pass);
+    assert!(!run_test(&s, "s: abd\nb: igaz").pass);
+}
+
+#[test]
 fn extreme_integers_are_errors_not_panics() {
     const MIN: &str = "-9223372036854775808";
     let m = red(

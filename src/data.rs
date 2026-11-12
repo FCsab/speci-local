@@ -134,8 +134,10 @@ impl Conv<'_, '_> {
             },
             Type::Bool => match y {
                 Yaml::Boolean(b) => Ok(Value::Bool(*b)),
+                Yaml::String(s) if s == "igaz" => Ok(Value::Bool(true)),
+                Yaml::String(s) if s == "hamis" => Ok(Value::Bool(false)),
                 _ => Err(format!(
-                    "`{path}` should be `true` or `false` (L), but it is `{got}`."
+                    "`{path}` should be `true`/`igaz` or `false`/`hamis` (L), but it is `{got}`."
                 )),
             },
             Type::Str => match y {
