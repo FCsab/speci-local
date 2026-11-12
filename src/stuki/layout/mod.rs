@@ -87,7 +87,7 @@ pub struct TextBox {
     pub hint: &'static str,
 }
 
-/// What the ✕ in a cell's corner deletes.
+/// What the × in a cell's corner deletes.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Del {
     Node(u64),
@@ -95,7 +95,7 @@ pub enum Del {
 }
 
 pub struct Cell {
-    /// The box the ✕ and the drag handle sit in.
+    /// The box the × and the drag handle sit in.
     pub rect: Rect,
     pub del: Option<Del>,
     /// The element dragged by the handle.

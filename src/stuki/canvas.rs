@@ -265,7 +265,7 @@ impl Stuki {
         }
     }
 
-    /// The ✕ and move handle of the hovered cell, the switch's +C / +D, and the ✕ F V R bar.
+    /// The × and move handle of the hovered cell, the switch's +C / +D, and the × F V R bar.
     fn hover_buttons(
         &mut self,
         ui: &mut egui::Ui,

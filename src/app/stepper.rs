@@ -63,7 +63,7 @@ fn snippet(src: &str, span: (usize, usize)) -> String {
 fn describe(src: &str, st: &Step) -> String {
     match &st.kind {
         StepKind::Value(v) => format!("{}  =  {v}", snippet(src, st.span)),
-        StepKind::Error(t) => format!("{}  ✗  {t}", snippet(src, st.span)),
+        StepKind::Error(t) => format!("{}  ×  {t}", snippet(src, st.span)),
         StepKind::Enter(c) => format!("↓ {c}"),
         StepKind::Leave(r) => format!("↑ {r}"),
     }
@@ -236,7 +236,7 @@ mod tests {
         );
         assert_eq!(
             describe(src, &step(StepKind::Error("Division by zero".into()))),
-            "a+b  ✗  Division by zero"
+            "a+b  ×  Division by zero"
         );
         assert_eq!(
             describe(src, &step(StepKind::Enter("f(1)".into()))),

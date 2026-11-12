@@ -154,6 +154,48 @@ mod tests {
         assert_eq!(file_stem("   ", "specification"), "specification");
     }
 
+    /// The app has no fonts but its own three: every character the code shows must be in them.
+    #[test]
+    fn every_character_of_the_interface_has_a_glyph() {
+        fn sources(dir: &Path, out: &mut String) {
+            for e in std::fs::read_dir(dir).unwrap().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    sources(&p, out);
+                } else if !p.ends_with("tests.rs") {
+                    out.push_str(&std::fs::read_to_string(&p).unwrap());
+                }
+            }
+        }
+        let mut text = String::new();
+        sources(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &mut text,
+        );
+        let ctx = egui::Context::default();
+        crate::app::fonts(&ctx);
+        ctx.run_ui(Default::default(), |_| {})
+            .textures_delta
+            .clear();
+        let mut missing: Vec<char> = text
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .flat_map(str::chars)
+            // ⎋ stands for Escape in the Vim tests' key strings only
+            .filter(|&c| c > '~' && !c.is_whitespace() && c != '⎋')
+            .filter(|&c| {
+                !ctx.fonts_mut(|f| f.has_glyph(&egui::FontId::proportional(14.0), c))
+                    || !ctx.fonts_mut(|f| f.has_glyph(&egui::FontId::monospace(14.0), c))
+            })
+            .collect();
+        missing.sort_unstable();
+        missing.dedup();
+        assert!(missing.is_empty(), "no glyph for {missing:?}");
+        // a character none of the three fonts has is noticed (U+2715, once used for "delete")
+        let cross = char::from_u32(0x2715).unwrap();
+        assert!(!ctx.fonts_mut(|f| f.has_glyph(&egui::FontId::proportional(14.0), cross)));
+    }
+
     /// The embedded fonts only keep the icons named in this file (`scripts/subset-fonts.py`).
     #[test]
     fn every_icon_has_a_glyph_in_both_fonts() {

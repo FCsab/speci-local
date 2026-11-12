@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Shrink the embedded 0xProto Nerd Fonts: keep every text glyph, and of the ~10 600 icons
-only the ones `src/ui.rs` names. Run it again after adding an icon there:
+"""Shrink the embedded fonts. Run it again after adding an icon to `src/ui.rs`:
 
     pip install fonttools
-    scripts/subset-fonts.py <dir with the original 0xProtoNerdFont{Mono,Propo}-Regular.ttf>
+    scripts/subset-fonts.py <dir with the three original .ttf files>
 
-The originals are in the Nerd Fonts release "0xProto" (https://www.nerdfonts.com).
+- 0xProto Nerd Font (Mono and Propo): every text glyph stays, and of the ~10 600 icons only
+  the ones `src/ui.rs` names. The originals are in the Nerd Fonts release "0xProto"
+  (https://www.nerdfonts.com).
+- Noto Sans Math: every character stays; the ~2 000 stretched and script-size variants that
+  only a formula typesetter reaches (through the MATH table) go. The original is at
+  https://fonts.google.com/noto/specimen/Noto+Sans+Math.
 """
 import re
 import sys
@@ -34,3 +38,14 @@ for name in ["0xProtoNerdFontMono-Regular.ttf", "0xProtoNerdFontPropo-Regular.tt
     s.subset(font)
     font.save(root / "assets" / name)
     print(f"{name}: {len(have)} -> {len(keep)} characters, {(root / 'assets' / name).stat().st_size} bytes")
+
+name = "NotoSansMath-Regular.ttf"
+font = TTFont(Path(sys.argv[1]) / name)
+before = len(font.getGlyphOrder())
+opts = subset.Options(name_IDs=["*"], notdef_outline=True, hinting=True)
+opts.drop_tables += ["MATH"]
+s = subset.Subsetter(opts)
+s.populate(unicodes=set(font.getBestCmap()))
+s.subset(font)
+font.save(root / "assets" / name)
+print(f"{name}: {before} -> {len(font.getGlyphOrder())} glyphs, {(root / 'assets' / name).stat().st_size} bytes")
