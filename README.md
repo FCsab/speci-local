@@ -287,11 +287,11 @@ CI runs all three on every push, builds the desktop app on Windows, Linux and ma
 | `src/eval/` | the evaluator: values, operators, patterns, function calls, stepper trace |
 | `src/data.rs`, `src/runner.rs` | reading YAML test cases, running them and explaining the verdict |
 | `src/file.rs`, `src/compact.rs` | `.sp` files and the `SPECI1:` line |
-| `src/editor/` | the code editor: highlighting and completion |
+| `src/editor/` | the code editor: highlighting, completion and Vim keys (`vim/`) |
 | `src/app/` | the window: toolbar, panes, results, stepper, dialogs, background evaluation |
 | `src/stuki/` | the structogram editor: model, layout, canvas, colors, PNG and `.st` files |
-| `src/stuki/from_spec.rs` | Auto Stuki |
-| `src/stuki/run.rs` | running structograms on test cases |
+| `src/stuki/from_spec/` | Auto Stuki: helpers, the patterns' algorithms, the postcondition |
+| `src/stuki/run/` | running structograms on test cases: compiler and machine |
 | `src/platform.rs` | what differs between the desktop systems and Android |
 | `android/` | the Android wrapper crate |
 | `tests/` | case studies, edge cases, limits, and a fuzzer that damages valid documents |
