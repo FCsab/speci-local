@@ -153,4 +153,45 @@ mod tests {
         );
         assert_eq!(file_stem("   ", "specification"), "specification");
     }
+
+    /// The embedded fonts only keep the icons named in this file (`scripts/subset-fonts.py`).
+    #[test]
+    fn every_icon_has_a_glyph_in_both_fonts() {
+        let icons: Vec<char> = include_str!("ui.rs")
+            .split("\\u{")
+            .skip(1)
+            .filter_map(|r| u32::from_str_radix(r.split('}').next()?, 16).ok())
+            .filter_map(char::from_u32)
+            .collect();
+        assert!(icons.len() > 30, "{}", icons.len());
+        for bytes in [
+            &include_bytes!("../assets/0xProtoNerdFontPropo-Regular.ttf")[..],
+            &include_bytes!("../assets/0xProtoNerdFontMono-Regular.ttf")[..],
+        ] {
+            let mut f = egui::FontDefinitions::empty();
+            f.font_data.insert(
+                "f".into(),
+                std::sync::Arc::new(egui::FontData::from_static(bytes)),
+            );
+            f.families
+                .insert(egui::FontFamily::Proportional, vec!["f".into()]);
+            f.families
+                .insert(egui::FontFamily::Monospace, vec!["f".into()]);
+            let ctx = egui::Context::default();
+            ctx.set_fonts(f);
+            ctx.run_ui(Default::default(), |_| {})
+                .textures_delta
+                .clear();
+            let font = egui::FontId::proportional(14.0);
+            for &c in &icons {
+                assert!(
+                    ctx.fonts_mut(|f| f.has_glyph(&font, c)),
+                    "no glyph for U+{:X}",
+                    c as u32
+                );
+            }
+            // a missing glyph is noticed
+            assert!(!ctx.fonts_mut(|f| f.has_glyph(&font, char::from_u32(0xf2b9).unwrap())));
+        }
+    }
 }

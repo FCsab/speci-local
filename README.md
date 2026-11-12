@@ -44,7 +44,7 @@ A kész változatok a [GitHub-kiadásoknál](https://github.com/FCsab/speci-loca
 Megjegyzések:
 
 - **macOS**: az alkalmazást az Apple nem hitelesítette (notarization), ezért az első indítást letiltja. Engedélyezd a *Rendszerbeállítások → Adatvédelem és biztonság → Megnyitás mindenképp* pontban, vagy futtasd ezt: `xattr -dr com.apple.quarantine /Applications/speci-local.app`.
-- **Linux**: a szokásos ablakkezelő könyvtárak kellenek hozzá (X11/Wayland, `libxkbcommon`), a Megnyitás/Mentés ablakokhoz pedig az `xdg-desktop-portal` (GNOME-on és KDE-n alapból megvan).
+- **Linux**: OpenGL és a szokásos ablakkezelő könyvtárak kellenek hozzá (X11/Wayland, `libxkbcommon`), a Megnyitás/Mentés ablakokhoz pedig az `xdg-desktop-portal` (GNOME-on és KDE-n alapból megvan).
   Az első indítás telepít egy asztali bejegyzést (`~/.local/share/applications/speci-local.desktop`) és egy ikont (`~/.local/share/icons/hicolor/256x256/apps/speci-local.png`), így az alkalmazásnak lesz ikonja, és megjelenik az alkalmazásmenüben. Ha törlöd ezt a két fájlt, eltűnik onnan.
 
 ## Gyors kezdés
@@ -111,7 +111,7 @@ Azt is elutasítja, amit az online szerkesztő elutasít: `→`, `∧`/`∨`, `A
 
 - Szintaxiskiemelés, sorszámok és környezetfüggő kiegészítés: blokkfejlécek a sor elején, halmaznevek az `∈` után, valamint a deklarált változók, típusok és függvények.
 - A tételek és a kvantorok sablonként szúródnak be, például a `SUM`-ból `SUM(i=1..n, |)` lesz. A ↑↓ választ, a Tab vagy az Enter beszúr, az Esc bezár.
-- Különleges karakterek: a szimbólumgombok, az **Alt+1 … Alt+6** (macOS-en **⌥1 … ⌥6**) az ∈ ∀ ∃ ≠ ≤ ≥ jelekhez, vagy írd be, hogy `forall`, `exists`, `leq`, és a kiegészítés szimbólummá alakítja.
+- Különleges karakterek: a szimbólumgombok, az **Alt+1 … Alt+6** (macOS-en **⌥1 … ⌥6**) az ∈ ∀ ∃ ≠ ≤ ≥ jelekhez, vagy írd be, hogy `forall`, `exists`, `leq`, és a kiegészítés szimbólummá alakítja. A kézzel beírt `<=`, `>=` és `!=` átalakul ≤ ≥ ≠ jellé.
 - Világos, sötét vagy a rendszert követő téma, és állítható betűméret.
 
 ## Stuki (struktogramok)

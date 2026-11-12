@@ -44,7 +44,7 @@ Ready-made builds are attached to the [GitHub releases](https://github.com/FCsab
 Notes:
 
 - **macOS**: the app isn't notarized by Apple, so the first start is blocked. Allow it in *System Settings → Privacy & Security → Open Anyway*, or run `xattr -dr com.apple.quarantine /Applications/speci-local.app`.
-- **Linux**: needs the usual windowing libraries (X11/Wayland, `libxkbcommon`), and the Open/Save dialogs need `xdg-desktop-portal` (standard on GNOME and KDE).
+- **Linux**: needs OpenGL and the usual windowing libraries (X11/Wayland, `libxkbcommon`), and the Open/Save dialogs need `xdg-desktop-portal` (standard on GNOME and KDE).
   The first start installs a desktop entry (`~/.local/share/applications/speci-local.desktop`) and an icon (`~/.local/share/icons/hicolor/256x256/apps/speci-local.png`), so the app shows its icon and appears in the application menu. Delete those two files to remove it again.
 
 ## Quick start
@@ -111,7 +111,7 @@ It also rejects what the online editor rejects: `→`, `∧`/`∨`, `ABS`, `elem
 
 - Syntax highlighting, line numbers and context-aware completion: block headers at the start of a line, set names after `∈`, and the variables, types and functions you've declared.
 - Patterns and quantifiers insert as snippets, e.g. `SUM` becomes `SUM(i=1..n, |)`. Use ↑↓ to choose, Tab or Enter to insert, Esc to close.
-- Special characters: the symbol buttons, **Alt+1 … Alt+6** (**⌥1 … ⌥6** on macOS) for ∈ ∀ ∃ ≠ ≤ ≥, or type `forall`, `exists`, `leq` and let completion turn them into symbols.
+- Special characters: the symbol buttons, **Alt+1 … Alt+6** (**⌥1 … ⌥6** on macOS) for ∈ ∀ ∃ ≠ ≤ ≥, or type `forall`, `exists`, `leq` and let completion turn them into symbols. `<=`, `>=` and `!=` typed by hand become ≤ ≥ ≠.
 - Light, dark or system theme, and an adjustable font size.
 
 ## Stuki (structograms)

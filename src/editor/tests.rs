@@ -198,6 +198,34 @@ fn enter_in_test_data_indents_like_json() {
 }
 
 #[test]
+fn typed_comparisons_become_symbols() {
+    let mut h = harness("Ef: a");
+    h.run_steps(3);
+    for (typed, shown) in [
+        ("<", "<"),
+        ("=", "≤"),
+        ("b>", "≤b>"),
+        ("=", "≤b≥"),
+        ("!", "≤b≥!"),
+    ] {
+        h.event(egui::Event::Text(typed.into()));
+        h.run_steps(2);
+        assert_eq!(h.state().text, format!("Ef: a{shown}"), "after {typed}");
+    }
+    h.event(egui::Event::Text("=".into()));
+    h.run_steps(2);
+    h.event(egui::Event::Text("c=".into()));
+    h.run_steps(2);
+    assert_eq!(h.state().text, "Ef: a≤b≥≠c=");
+    // test data keeps what is typed
+    let mut h = harness_in("s: <", Lang::Data);
+    h.run_steps(3);
+    h.event(egui::Event::Text("=".into()));
+    h.run_steps(2);
+    assert_eq!(h.state().text, "s: <=");
+}
+
+#[test]
 fn symbol_scan() {
     let s = scan_symbols(
         "Be: n∈N, t∈Pont[1..n], Pont=(x:Z x y:Z)\nFv: f:N->N, f(i)=i\nUf: ∀i∈[1..n]:(t[i].x>0)",

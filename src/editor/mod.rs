@@ -103,6 +103,25 @@ pub fn code_editor(
             replace_selection(ui.ctx(), id, text, sym);
             comp.items.clear();
         }
+        // `<=`, `>=` and `!=` typed by hand become ≤ ≥ ≠
+        if lang == Lang::Spec
+            && let Some((a, b)) = cursor_of(ui.ctx(), id)
+            && a == b
+            && let Some(sym) = match a.checked_sub(1).and_then(|p| text.chars().nth(p)) {
+                Some('<') => Some("≤"),
+                Some('>') => Some("≥"),
+                Some('!') => Some("≠"),
+                _ => None,
+            }
+            && ui.input_mut(|i| {
+                let n = i.events.len();
+                i.events
+                    .retain(|e| !matches!(e, egui::Event::Text(t) if t == "="));
+                n != i.events.len()
+            })
+        {
+            replace(ui.ctx(), id, text, a - 1, a, sym);
+        }
         // Tab inserts two spaces: a real tab character is invalid in YAML test data
         if !open && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Tab)) {
             replace_selection(ui.ctx(), id, text, "  ");

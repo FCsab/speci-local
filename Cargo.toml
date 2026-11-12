@@ -14,14 +14,12 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-# Android (NativeActivity) can't have eframe's default `accesskit` feature,
-# so the defaults are only switched on for the desktop systems below.
+# every system picks its renderer (and Android can't have the `accesskit` feature) below
 eframe = { version = "0.37.0", default-features = false, features = [
     "clipboard",
     "default_fonts",
     "links",
     "persistence",
-    "wgpu",
 ] }
 miniz_oxide = "0.8"
 png = "0.18"
@@ -29,14 +27,30 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1"
 yaml-rust2 = "0.13.0"
 
-# Windows, Linux, macOS: eframe's default features, native file dialogs and clipboard
+# Windows, Linux, macOS: native file dialogs and clipboard
 [target.'cfg(not(target_os = "android"))'.dependencies]
-eframe = "0.37.0"
 arboard = "3"
 rfd = "0.17.2"
 
-# Android: the system clipboard through JNI
+# Linux: the OpenGL renderer, which is about 9 MB smaller in the executable than wgpu and
+# needs less memory. winit's own defaults bring the window frame for GNOME on Wayland.
+[target.'cfg(target_os = "linux")'.dependencies]
+eframe = { version = "0.37.0", default-features = false, features = [
+    "accesskit",
+    "glow",
+    "system_fonts",
+    "wayland",
+    "x11",
+] }
+winit = "0.30"
+
+# Windows, macOS: eframe's default features (the wgpu renderer)
+[target.'cfg(not(any(target_os = "linux", target_os = "android")))'.dependencies]
+eframe = "0.37.0"
+
+# Android: wgpu, and the system clipboard through JNI
 [target.'cfg(target_os = "android")'.dependencies]
+eframe = { version = "0.37.0", default-features = false, features = ["wgpu"] }
 jni = "0.22"
 ndk-context = "0.1"
 winit = { version = "0.30", default-features = false, features = ["android-native-activity"] }
@@ -46,6 +60,13 @@ egui_kittest = { version = "0.37", features = ["eframe"] }
 
 [profile.release]
 strip = true
+# slower to build (minutes), about 5 MB smaller
+lto = "fat"
+codegen-units = 1
+
+# the libraries are optimized for size; the app's own code (the evaluator) stays at full speed
+[profile.release.package."*"]
+opt-level = "s"
 
 [target."cfg(windows)".build-dependencies]
 winresource = "0.1.34"
