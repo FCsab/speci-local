@@ -1668,6 +1668,19 @@ mod tests {
     }
 
     #[test]
+    fn the_else_branch_may_set_what_the_pattern_set() {
+        // issue #9
+        let out = outline_of(
+            "Be:\nn∈N, x∈Z[1..n]\nSa:\nvan∈L\nKi:\nm∈Z\nEf:\n-\nUf:\n\
+             van -> (van, , m)=FELTMAX(i=1..n, x[i], x[i]>0) és\nnem van -> m = 0\n",
+        );
+        assert!(
+            out.ends_with("[if van]\n  -\n[else]\n  m:=0\nKi: m\n"),
+            "{out}"
+        );
+    }
+
+    #[test]
     fn a_pattern_that_cannot_become_steps_leaves_its_output_unset() {
         let spec = parse(&format!(
             "{TABLE}s∈Z\nEf:\nn>0\nUf:\ns=MAX(i=1..n, x[i]).3{REST}"
