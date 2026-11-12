@@ -62,8 +62,28 @@ pub const HEADERS: &[&str] = &[
     "Be", "Sa", "Ki", "Fv", "Ef", "Uf", "In", "Aux", "Out", "Fn", "Pre", "Post", "Def",
 ];
 pub(super) const KEYWORDS: &[&str] = &[
-    "and", "or", "not", "és", "vagy", "nem", "mod", "div", "eleme", "in", "exists", "forall",
-    "létezik", "minden", "true", "false", "igaz", "hamis",
+    "and",
+    "or",
+    "not",
+    "és",
+    "vagy",
+    "nem",
+    "mod",
+    "div",
+    "eleme",
+    "in",
+    "exists",
+    "forall",
+    "létezik",
+    "minden",
+    "true",
+    "false",
+    "igaz",
+    "hamis",
+    "ha",
+    "egyébként",
+    "if",
+    "otherwise",
 ];
 const GLYPHS: &str = "∈∀∃≠≤≥∤¬–−";
 

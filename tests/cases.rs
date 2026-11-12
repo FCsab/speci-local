@@ -693,3 +693,28 @@ fn implications_joined_by_and() {
     green(spec, &[none]);
     red(spec, &none.replace("maxhaszon: 0", "maxhaszon: 3"));
 }
+
+/// `{a, ha c; b egyébként}`: the value of the first case whose condition holds.
+#[test]
+fn cases_in_a_function() {
+    let spec = "Be: n∈N, pontok∈Z[1..n]\nKi: pontElsoUresig∈N\nFv: elsoUres: Z[]  -> N,\nelsoUres(pontok)={KERES(j=1..n,pontok[j]=0).2, ha KERES(j=1..n,pontok[j]=0).1;n egyébként}\nEf: n>0 és ∀i∈[1..n]:(pontok[i]=3 vagy pontok[i]=4 vagy pontok[i]=5 vagy pontok[i]=0 vagy pontok[i]=-1)\nUf: pontElsoUresig=SZUM(i=1..elsoUres(pontok)-1, pontok[i])\n";
+    let data = |p: &str, n: usize, s: i64| format!("n: {n}\npontok: [{p}]\npontElsoUresig: {s}\n");
+    let zero = "3, 3, 4, 5, -1, 3, 0, 4, 5, 0";
+    green(spec, &[&data(zero, 10, 17), &data("3, 4, 5", 3, 7)]);
+    red(spec, &data(zero, 10, 16));
+    red(spec, &data("3, 4, 5", 3, 12));
+
+    // English words, several cases; `ha` is still an ordinary name outside the braces
+    let sign = "In: x∈Z, ha∈N\nOut: s∈Z\nFn: sign:Z->Z, sign(v)={1, if v>0; 0, if v=0; -1 otherwise}\nPre: -\nPost: s=sign(x)+ha\n";
+    green(
+        sign,
+        &[
+            "x: 5\nha: 0\ns: 1",
+            "x: 0\nha: 2\ns: 2",
+            "x: -3\nha: 0\ns: -1",
+        ],
+    );
+    let none = "Be: x∈Z\nKi: s∈Z\nEf: -\nUf: s={1, ha x>0}\n";
+    assert!(red(none, "x: -1\ns: 1").contains("None of the cases"));
+    assert!(spec_err("Be: x∈Z\nKi: s∈Z\nEf: -\nUf: s={1, x>0}\n").contains("`ha`"));
+}

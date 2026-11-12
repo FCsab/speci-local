@@ -575,6 +575,13 @@ Fn: grade:Student→N, grade(h)=h.grade
 Fn: index:N[] x N→N, index(x,i)=x[i]
 ```
 
+A value that depends on a condition is written as cases in braces: each case is `value, ha condition` (`if` in English), cases are separated by `;`, and the last one may be `value egyébként` (`otherwise`). The first case whose condition holds gives the value. Cases can be used anywhere in an expression.
+```text
+Fv: elsoUres:Z[]->N,
+    elsoUres(t)={KERES(j=1..n, t[j]=0).2, ha KERES(j=1..n, t[j]=0).1; n egyébként}
+Fn: sign:Z->Z, sign(x)={1, if x>0; 0, if x=0; -1 otherwise}
+```
+
 ### 5.2. Decomposition and Scope
 Functions have full access to all input variables declared in `In: `, unless a function parameter shadows the name:
 ```text

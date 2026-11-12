@@ -249,6 +249,7 @@ impl Parser<'_> {
             }
             Tok::Sym("(") => self.parenthesized(start),
             Tok::Sym("[") => self.array_literal(start),
+            Tok::Sym("{") => self.cases(start),
             Tok::Sym(q @ ("∀" | "∃")) => self.quantifier(&t, q),
             _ => {
                 let mut d = self.unexpected("a value or an expression");
@@ -262,6 +263,46 @@ impl Parser<'_> {
             }
         }
     }
+    /// `{a, ha c; b, ha d; e egyébként}` (`if` / `otherwise` in English); the commas before
+    /// `ha` and `egyébként` may be left out.
+    fn cases(&mut self, start: usize) -> PResult<Expr> {
+        let word = |p: &mut Self, words: [&str; 2]| {
+            let hit = matches!(&p.peek().tok, Tok::Ident(w) if words.contains(&w.as_str()));
+            if hit {
+                p.next();
+            }
+            hit
+        };
+        self.next();
+        let mut arms = vec![];
+        loop {
+            let value = self.expr()?;
+            self.eat(",");
+            if word(self, ["egyébként", "otherwise"]) {
+                if !self.eat("}") {
+                    return Err(self.unexpected("`}` after `egyébként`"));
+                }
+                return Ok(self.mk(start, ExprKind::Cases(arms, Some(value))));
+            }
+            if !word(self, ["ha", "if"]) {
+                let (l, c) = line_col(self.src, start);
+                return Err(self
+                    .unexpected("`ha` and a condition, or `egyébként`")
+                    .explain(format!(
+                        "The `{{` at line {l}, column {c} starts cases: `{{a, ha c; b egyébként}}`."
+                    )));
+            }
+            let cond = self.expr()?;
+            arms.push((value, cond));
+            if self.eat("}") {
+                return Ok(self.mk(start, ExprKind::Cases(arms, None)));
+            }
+            if !self.eat(";") {
+                return Err(self.unexpected("`;` before the next case, or `}`"));
+            }
+        }
+    }
+
     fn parenthesized(&mut self, start: usize) -> PResult<Expr> {
         self.next();
         let mut slots: Vec<Option<Expr>> = Vec::new();

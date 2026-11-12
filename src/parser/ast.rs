@@ -46,6 +46,9 @@ pub enum ExprKind {
         hi: Option<Expr>,
         args: Vec<Expr>,
     },
+    /// `{a, ha c; b egyébként}`: the value of the first case whose condition holds, as
+    /// (value, condition) pairs, then the `egyébként` (otherwise) value.
+    Cases(Vec<(Expr, Expr)>, Option<Expr>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -241,6 +244,11 @@ impl Expr {
             ExprKind::Macro { lo, hi, args, .. } => std::iter::once(lo)
                 .chain(hi.iter())
                 .chain(args.iter())
+                .collect(),
+            ExprKind::Cases(arms, otherwise) => arms
+                .iter()
+                .flat_map(|(v, c)| [v, c])
+                .chain(otherwise)
                 .collect(),
             ExprKind::Int(_)
             | ExprKind::Real(_)

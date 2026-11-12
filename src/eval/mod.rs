@@ -281,6 +281,20 @@ impl<'a> Eval<'a> {
                 restore(env, var, old);
                 r
             }
+            ExprKind::Cases(arms, otherwise) => {
+                for (value, cond) in arms {
+                    // like `nem`: an equation in a condition gives nothing a value
+                    if self.truth_scratch(cond, env)? {
+                        return self.eval(value, env);
+                    }
+                }
+                match otherwise {
+                    Some(v) => self.eval(v, env),
+                    None => Err(self
+                        .err(e, format!("None of the cases of `{}` holds", self.t(e)))
+                        .hint("Add a last case for the rest: `…; x egyébként}`.")),
+                }
+            }
         }
     }
 
