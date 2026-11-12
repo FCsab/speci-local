@@ -63,8 +63,8 @@ impl Compiler<'_> {
             match &n.kind {
                 Kind::Noop => {}
                 Kind::Statement(t) if matches!(t.text.trim(), "" | "-") => {}
-                // `Ki: s, db` only shows the outputs
-                Kind::Statement(t) if is_output(&t.text) => {}
+                // `Be: n, x` and `Ki: s, db` only show the inputs and the outputs
+                Kind::Statement(t) if is_io(&t.text) => {}
                 Kind::Statement(t) => match self.fragment(&t.text, id)? {
                     Fragment::Assign(target, value) => {
                         target_ok(&target).map_err(|m| (m, Some(id)))?;
@@ -163,10 +163,13 @@ impl Compiler<'_> {
     }
 }
 
-/// `Ki: s, db` / `Out: s, db`: the statement Auto Stuki ends with, showing the outputs.
-pub(super) fn is_output(text: &str) -> bool {
+/// `Be: n, x` / `In: n, x` and `Ki: s, db` / `Out: s, db`: the statements Auto Stuki starts and
+/// ends with, showing the inputs and the outputs.
+pub(super) fn is_io(text: &str) -> bool {
     let t = text.trim_start();
-    t.starts_with("Ki:") || t.starts_with("Out:")
+    ["Be:", "In:", "Ki:", "Out:"]
+        .iter()
+        .any(|k| t.starts_with(k))
 }
 
 pub(super) fn target_ok(e: &Expr) -> Result<(), String> {

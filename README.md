@@ -141,7 +141,7 @@ Switch between the two editors with the **Specification** / **Stuki** tabs in th
 
 - Loop variables and other helper variables are listed as local declarations, and the steps come in the order the outputs depend on each other. A nested loop that reuses its outer loop's variable gets a variable of its own (`i2`).
 - Parts that only state a condition on the result (like `db≤n`) need no steps and are left out, like `k=k` that only mentions a variable. If the postcondition only describes an output without saying how to compute it (like `2*s=r`), the output gets no steps and the status line names it.
-- The main structogram ends with a `Ki: …` (`Out: …`) statement that shows the outputs.
+- The main structogram starts with a `Be: …` (`In: …`) statement that shows the inputs, and ends with a `Ki: …` (`Out: …`) statement that shows the outputs.
 - The texts follow the specification's language: `Be/Ki/Ef/Uf` gives `és`, `nem`, `igaz`, `Egész`, …; `In/Out/Pre/Post` gives `and`, `not`, `true`, `Integer`, ….
 
 ### Run tests

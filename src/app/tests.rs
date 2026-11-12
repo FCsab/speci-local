@@ -385,9 +385,10 @@ fn auto_stuki_builds_structograms_from_the_spec() {
     let d = &st.program.diagrams[0];
     assert_eq!(d.name.text, "Páratlan számok");
     assert_eq!(d.variables.text, "i:Egész");
-    assert!(matches!(&d.body[0].kind, Kind::Statement(t) if t.text == "db:=0"));
-    assert!(matches!(&d.body[1].kind, Kind::While { cond, .. } if cond.text == "i=1..n"));
-    assert!(matches!(&d.body[2].kind, Kind::Statement(t) if t.text == "Ki: db"));
+    assert!(matches!(&d.body[0].kind, Kind::Statement(t) if t.text == "Be: n, szamok"));
+    assert!(matches!(&d.body[1].kind, Kind::Statement(t) if t.text == "db:=0"));
+    assert!(matches!(&d.body[2].kind, Kind::While { cond, .. } if cond.text == "i=1..n"));
+    assert!(matches!(&d.body[3].kind, Kind::Statement(t) if t.text == "Ki: db"));
     assert!(st.dirty() && st.path.is_none());
 
     // a broken specification changes nothing
@@ -395,7 +396,7 @@ fn auto_stuki_builds_structograms_from_the_spec() {
     h.get_by_label(&format!("{I_WAND}  Auto Stuki")).click();
     h.run_steps(4);
     assert!(h.state().stuki.status.starts_with("Fix the specification"));
-    assert_eq!(h.state().stuki.program.diagrams[0].body.len(), 3);
+    assert_eq!(h.state().stuki.program.diagrams[0].body.len(), 4);
 }
 
 #[test]
@@ -436,7 +437,7 @@ fn stuki_runs_the_test_cases() {
 
     let decision = {
         let body = &mut h.state_mut().stuki.program.diagrams[0].body;
-        let Kind::While { body, .. } = &mut body[1].kind else {
+        let Kind::While { body, .. } = &mut body[2].kind else {
             panic!("the counting loop")
         };
         let Kind::If { cond, .. } = &mut body[0].kind else {

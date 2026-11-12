@@ -44,7 +44,9 @@ struct Words {
     array: &'static str,
     record: &'static str,
     main: &'static str,
-    /// The statement that shows the outputs at the end: `Ki: s, db`.
+    /// The statements that show the inputs at the start and the outputs at the end: `Be: n, x`,
+    /// `Ki: s, db`.
+    input: &'static str,
     out: &'static str,
     // names of the variables the algorithms need
     sum: &'static str,
@@ -73,6 +75,7 @@ const HU: Words = Words {
     array: "Tömb",
     record: "Rekord",
     main: "Főprogram",
+    input: "Be:",
     out: "Ki:",
     sum: "s",
     count: "db",
@@ -100,6 +103,7 @@ const EN: Words = Words {
     array: "Array",
     record: "Record",
     main: "Main",
+    input: "In:",
     out: "Out:",
     sum: "s",
     count: "cnt",
@@ -156,16 +160,19 @@ pub fn from_spec(spec: &Spec, title: &str) -> Generated {
     let mut main = Diagram::new();
     main.name = Rich::plain(if title.is_empty() { g.w.main } else { title });
     main.show_return = false;
-    let mut body = g.block(&conjuncts(&spec.post));
-    let outs: Vec<&str> = spec
-        .decls
-        .iter()
-        .filter(|d| d.role == Role::Out)
-        .map(|d| d.name.as_str())
-        .collect();
-    if !outs.is_empty() {
-        body.push(stmt(format!("{} {}", g.w.out, outs.join(", "))));
-    }
+    // `Be: n, x` … `Ki: s, db`: the variables the program reads and the ones it shows
+    let shown = |role: Role, word: &str| {
+        let names: Vec<&str> = spec
+            .decls
+            .iter()
+            .filter(|d| d.role == role)
+            .map(|d| d.name.as_str())
+            .collect();
+        (!names.is_empty()).then(|| stmt(format!("{word} {}", names.join(", "))))
+    };
+    let mut body: Vec<Node> = shown(Role::In, g.w.input).into_iter().collect();
+    body.extend(g.block(&conjuncts(&spec.post)));
+    body.extend(shown(Role::Out, g.w.out));
     main.body = seq(body);
     g.finish_locals(&mut main);
     let unset = spec
