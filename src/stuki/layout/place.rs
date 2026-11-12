@@ -52,7 +52,7 @@ impl Lay<'_> {
             self.out.fills.push(Shape::rect_filled(r, 0.0, c));
         }
         let grip = match &n.kind {
-            Kind::Noop => self.place_noop(n, r),
+            Kind::Noop => self.place_noop(r),
             Kind::Statement(t) => self.place_statement(n, t, r),
             Kind::While { cond, body } => self.place_loop(n, cond, body, true, r, under),
             Kind::Repeat { cond, body } => self.place_loop(n, cond, body, false, r, under),
@@ -63,11 +63,10 @@ impl Lay<'_> {
         self.parent = outer;
     }
 
-    fn place_noop(&mut self, n: &Node, r: Rect) -> Rect {
+    fn place_noop(&mut self, r: Rect) -> Rect {
         self.outline(r);
         let g = self.label("-", 1.0, self.cell_text());
         self.put_label(g, self.inner(r, 0.5 * self.f), Align2::CENTER_TOP);
-        self.cell(r, None, n.id);
         r
     }
 

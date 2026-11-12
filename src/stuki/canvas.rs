@@ -96,12 +96,24 @@ impl Stuki {
 
         // the "+" tile
         let plus_r = Rect::from_min_size(rect.min + pos[pos.len() - 1], plus);
-        let b = egui::Button::new(RichText::new("+").size(1.6 * f).color(GREEN))
-            .fill(GREEN.gamma_multiply(0.12))
-            .stroke(Stroke::new(1.0, GREEN.gamma_multiply(0.6)))
-            .corner_radius(CornerRadius::same((0.6 * f) as u8));
-        if ui
-            .put(plus_r, b)
+        let add = ui.interact(plus_r, Id::unique("stuki-add-diagram"), Sense::click());
+        let fill = if add.hovered() { 0.22 } else { 0.12 };
+        let p = ui.painter();
+        p.circle(
+            plus_r.center(),
+            (plus_r.width() - bw) / 2.0,
+            GREEN.gamma_multiply(fill),
+            Stroke::new(bw, GREEN.gamma_multiply(0.6)),
+        );
+        p.text(
+            plus_r.center(),
+            Align2::CENTER_CENTER,
+            "+",
+            egui::FontId::proportional(1.6 * f),
+            GREEN,
+        );
+        if add
+            .on_hover_cursor(CursorIcon::PointingHand)
             .on_hover_text("Add new structogram")
             .clicked()
         {
@@ -135,6 +147,7 @@ impl Stuki {
             && self.drag.is_none()
             && let Some(o) = ui.input(|i| i.pointer.press_origin())
             && let Some(h) = out.hit_at(o)
+            && !h.noop
         {
             self.drag = Some(Drag::Node(h.id));
         }
@@ -277,7 +290,7 @@ impl Stuki {
     ) {
         let s = (0.8 * f).clamp(if platform::MOBILE { 24.0 } else { 15.0 }, 28.0);
         if let Some(cell) = out.cells.iter().rev().find(|c| c.rect.contains(p)) {
-            self.cell_buttons(ui, cell, s, bw, actions);
+            self.cell_buttons(ui, cell, bw, actions);
         }
         let w = (1.8 * f).max(30.0);
         let beside = |r: &Rect| Rect::from_min_size(r.right_top(), vec2(w, r.height()));
@@ -300,32 +313,23 @@ impl Stuki {
         &mut self,
         ui: &mut egui::Ui,
         cell: &layout::Cell,
-        s: f32,
         bw: f32,
         actions: &mut Vec<Action>,
     ) {
-        let mut x = cell.rect.right() - bw / 2.0 - 1.0;
-        let top = cell.rect.top() + bw / 2.0 + 1.0;
-        if let Some(del) = cell.del {
-            let r = Rect::from_min_size(pos2(x - s, top), Vec2::splat(s));
-            let tip = match del {
-                Del::Case { .. } => "Delete this case",
-                Del::Node(_) => "Delete",
-            };
-            let b = egui::Button::new(RichText::new(I_CLOSE).size(s * 0.7).color(RED))
-                .frame(false)
-                .min_size(Vec2::splat(s));
-            if ui.put(r, b).on_hover_text(tip).clicked() {
-                actions.push(Action::Del(del));
-            }
-            x -= s;
-        }
-        let r = Rect::from_min_size(pos2(x - s, top), Vec2::splat(s));
+        let inner = cell.rect.shrink(bw / 2.0);
+        let s = inner.height().min(inner.width() / 2.0);
+        let glyph = 0.65 * s;
+        let mv = Rect::from_min_size(
+            pos2(inner.right() - s, inner.center().y - s / 2.0),
+            Vec2::splat(s),
+        );
+
         ui.painter()
-            .rect_filled(r.shrink(1.0), 3.0, Color32::GRAY.gamma_multiply(0.5));
+            .rect_filled(mv, 0.0, Color32::GRAY.gamma_multiply(0.5));
         let h = ui.put(
-            r,
-            egui::Label::new(RichText::new(I_MOVE).size(s * 0.65).color(Color32::WHITE))
+            mv,
+            egui::Label::new(RichText::new(I_MOVE).size(glyph).color(Color32::WHITE))
+                .selectable(false)
                 .sense(Sense::drag()),
         );
         if h.drag_started() {
@@ -333,6 +337,25 @@ impl Stuki {
         }
         h.on_hover_cursor(CursorIcon::Grab)
             .on_hover_text("Drag to move (drop outside to delete)");
+
+        if let Some(del) = cell.del {
+            let r = mv.translate(vec2(-s, 0.0));
+            let tip = match del {
+                Del::Case { .. } => "Delete this case",
+                Del::Node(_) => "Delete",
+            };
+            let b = egui::Button::new(RichText::new(I_CLOSE).size(glyph).color(RED))
+                .frame(false)
+                .min_size(Vec2::splat(s));
+            if ui
+                .put(r, b)
+                .on_hover_cursor(CursorIcon::PointingHand)
+                .on_hover_text(tip)
+                .clicked()
+            {
+                actions.push(Action::Del(del));
+            }
+        }
     }
 
     fn text_edit(&mut self, ui: &mut egui::Ui, tb: &layout::TextBox) {
