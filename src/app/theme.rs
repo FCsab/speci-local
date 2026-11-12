@@ -100,10 +100,13 @@ pub(super) fn card(ui: &egui::Ui) -> egui::Frame {
 }
 
 pub(super) fn pane_title(ui: &mut egui::Ui, icon: &str, title: &str) {
-    ui.label(
-        RichText::new(format!("{icon}  {title}"))
-            .strong()
-            .color(ui.visuals().strong_text_color()),
+    ui.add(
+        egui::Label::new(
+            RichText::new(format!("{icon}  {title}"))
+                .strong()
+                .color(ui.visuals().strong_text_color()),
+        )
+        .truncate(),
     );
 }
 

@@ -141,11 +141,19 @@ impl App {
             .on_hover_text("Structogram editor (.st)");
     }
 
+    /// The task title or the file name, at most `width` wide, then the unsaved-changes dot.
     fn title(&mut self, ui: &mut egui::Ui, width: f32) {
+        // room for the dot, so it stays clear of what comes after
+        let width = width.min(ui.available_width() - 2.0 * self.font).max(0.0);
         let dirty = match self.tool {
             Tool::Stuki => {
-                ui.label(RichText::new(self.stuki.file_name()).strong())
+                ui.scope(|ui| {
+                    ui.set_max_width(width);
+                    ui.add(
+                        egui::Label::new(RichText::new(self.stuki.file_name()).strong()).truncate(),
+                    )
                     .on_hover_text("File of the current structogram");
+                });
                 self.stuki.dirty()
             }
             Tool::Spec => {
@@ -172,6 +180,7 @@ impl App {
 
     pub(super) fn toolbar(&mut self, ui: &mut egui::Ui) {
         let narrow = self.narrow;
+        let mut one_row = true;
         ui.horizontal(|ui| {
             ui.label(
                 RichText::new("speci")
@@ -186,27 +195,54 @@ impl App {
                 return;
             }
             ui.separator();
-            self.title(ui, 260.0);
+            // the buttons go on a row of their own when they would cover the tabs (issue #8)
+            one_row = ui.available_width() >= self.font * 6.0 + self.toolbar_right;
+            if !one_row {
+                self.title(ui, 260.0);
+                return;
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                theme_buttons(ui, true);
-                self.settings_menu(ui);
-                ui.separator();
-                if self.tool == Tool::Spec {
-                    self.vim_toggle(ui);
-                    ui.separator();
-                    ui.toggle_value(&mut self.show_v, I_VIEW)
-                        .on_hover_text("Evaluation pane");
-                    ui.toggle_value(&mut self.show_d, I_DATA)
-                        .on_hover_text("Test cases pane");
-                    ui.toggle_value(&mut self.show_s, I_SPEC)
-                        .on_hover_text("Specification pane");
-                    ui.separator();
-                }
-                self.file_buttons(ui, true);
+                self.right_buttons(ui);
+                // the title gets what is left
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    self.title(ui, 260.0)
+                });
             });
         });
         if narrow {
             self.narrow_rows(ui);
+        } else if !one_row {
+            ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    self.right_buttons(ui)
+                })
+            });
+        }
+    }
+
+    /// Files, panes, Vim, settings and theme, laid out right to left.
+    fn right_buttons(&mut self, ui: &mut egui::Ui) {
+        let right = ui.max_rect().right();
+        theme_buttons(ui, true);
+        self.settings_menu(ui);
+        ui.separator();
+        if self.tool == Tool::Spec {
+            self.vim_toggle(ui);
+            ui.separator();
+            ui.toggle_value(&mut self.show_v, I_VIEW)
+                .on_hover_text("Evaluation pane");
+            ui.toggle_value(&mut self.show_d, I_DATA)
+                .on_hover_text("Test cases pane");
+            ui.toggle_value(&mut self.show_s, I_SPEC)
+                .on_hover_text("Specification pane");
+            ui.separator();
+        }
+        self.file_buttons(ui, true);
+        // changes with the font size and the tool: lay this frame out again with the new width
+        let width = right - ui.min_rect().left();
+        if (width - self.toolbar_right).abs() > 0.5 {
+            self.toolbar_right = width;
+            ui.ctx().request_discard("toolbar width changed");
         }
     }
 

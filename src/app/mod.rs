@@ -118,6 +118,9 @@ struct App {
     /// Only one pane fits on screen (phones): `tab` picks it.
     #[serde(skip)]
     narrow: bool,
+    /// Width of the toolbar's right-hand buttons, measured last frame.
+    #[serde(skip)]
+    toolbar_right: f32,
     #[cfg(target_os = "android")]
     #[serde(skip)]
     files: Option<android_files::FileDialog>,
@@ -185,6 +188,7 @@ impl Default for App {
             tool: Tool::Spec,
             stuki: Stuki::default(),
             narrow: false,
+            toolbar_right: 0.0,
             #[cfg(target_os = "android")]
             files: None,
             insets: (egui::epaint::MarginF32::ZERO, 0.0),

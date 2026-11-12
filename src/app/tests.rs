@@ -1,7 +1,7 @@
 use super::launch::create;
 use super::*;
 use crate::stuki::Stuki;
-use crate::ui::{I_COPY, I_DATA, I_SPEC, I_VIEW};
+use crate::ui::{I_COPY, I_DATA, I_GEAR, I_SPEC, I_STUKI, I_VIEW};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use std::path::PathBuf;
@@ -462,4 +462,71 @@ fn stuki_runs_the_test_cases() {
         broken.starts_with("Fix the specification first"),
         "{broken}"
     );
+}
+
+/// The toolbar and the pane headers: no two widgets drawn over each other (issue #8).
+#[test]
+fn toolbar_widgets_never_overlap() {
+    let mut bad = vec![];
+    for tool in [Tool::Spec, Tool::Stuki] {
+        for font in [12.0, 14.0, 16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 28.0] {
+            for width in (500..=1900).step_by(40) {
+                let mut h = Harness::builder()
+                    .with_size([width as f32, 900.0])
+                    .build_eframe(move |cc| {
+                        let mut a = create(cc, None);
+                        a.font = font;
+                        a.tool = tool;
+                        a
+                    });
+                h.run_steps(6);
+                if width >= 1900 {
+                    // wide windows keep the buttons on the row of the tabs
+                    let tab = h.get_by_label(&format!("{I_STUKI}  Stuki")).rect();
+                    let gear = h.get_by_label(I_GEAR).rect();
+                    assert!(
+                        (tab.center().y - gear.center().y).abs() < 2.0,
+                        "{tool:?} font {font}"
+                    );
+                }
+                let rows = font * 8.0; // the toolbar (one or two rows) and the pane headers
+                let mut rects = vec![];
+                leaves(h.root(), egui::Rect::EVERYTHING, &mut rects);
+                rects.retain(|(_, r)| r.min.y < rows && r.width() > 0.0);
+                for (i, (a, ra)) in rects.iter().enumerate() {
+                    for (b, rb) in &rects[i + 1..] {
+                        let x = ra.intersect(*rb);
+                        if x.width() > 1.0 && x.height() > 1.0 {
+                            bad.push(format!("{tool:?} font {font} width {width}: {a} / {b}"));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        bad.is_empty(),
+        "{} overlaps:\n{}",
+        bad.len(),
+        bad.join("\n")
+    );
+}
+
+/// The widgets with nothing inside them, as (role and label, rect). Single-line text fields
+/// clip their text, so the text counts only as far as the field reaches.
+fn leaves(n: egui_kittest::Node<'_>, clip: egui::Rect, out: &mut Vec<(String, egui::Rect)>) {
+    use egui_kittest::kittest::NodeT;
+    let role = n.accesskit_node().role();
+    let clip = if role == egui::accesskit::Role::TextInput {
+        clip.intersect(n.rect())
+    } else {
+        clip
+    };
+    if n.children().next().is_none() {
+        let label = n.accesskit_node().label().unwrap_or_default();
+        out.push((format!("{role:?} {label:?}"), n.rect().intersect(clip)));
+    }
+    for c in n.children() {
+        leaves(c, clip, out);
+    }
 }

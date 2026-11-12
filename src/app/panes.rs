@@ -99,9 +99,12 @@ impl App {
             ui.horizontal_wrapped(|ui| self.symbol_buttons(ui, false));
         } else {
             ui.horizontal(|ui| {
-                pane_title(ui, I_SPEC, "Specification");
+                // buttons first, so the title is cut short instead of drawn under them
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    self.symbol_buttons(ui, true)
+                    self.symbol_buttons(ui, true);
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        pane_title(ui, I_SPEC, "Specification")
+                    });
                 });
             });
         }
@@ -204,9 +207,6 @@ impl App {
 
     pub(super) fn data_pane(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            if !self.narrow {
-                pane_title(ui, I_DATA, "Test cases");
-            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if platform::MOBILE {
                     let id = data_editor_id(self.current);
@@ -218,6 +218,11 @@ impl App {
                     .clicked()
                 {
                     self.scaffold_test();
+                }
+                if !self.narrow {
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        pane_title(ui, I_DATA, "Test cases")
+                    });
                 }
             });
         });
