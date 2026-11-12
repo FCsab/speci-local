@@ -4,8 +4,8 @@
 //! steps of the main structogram: `x=…` an assignment, the patterns (`SUM`, `COUNT`, `MAX`,
 //! `SEARCH`, …) and the quantifiers the standard algorithms taught at ELTE, and
 //! `∀i∈[a..b]:(y[i]=…)` a counting loop. Every `Fv:`/`Fn:` function gets a structogram of its own.
-//! Parts that don't compute anything (conditions on the result) are kept as tinted statements, so
-//! nothing of the specification silently disappears.
+//! Parts that don't compute anything (conditions on the result) need no steps and are left out;
+//! the outputs that still get no value are listed in [`Generated::unset`].
 //!
 //! The texts follow the language of the specification: `Be/Ki/Ef/Uf` gives Hungarian keywords
 //! and types (`és`, `nem`, `Egész`), `In/Out/Pre/Post` English ones.
@@ -16,13 +16,10 @@ use crate::eval::result_names;
 use crate::parser::{BinOp, Expr, ExprKind, Role, Spec, Type, macro_alias, vars_in};
 use std::collections::HashSet;
 
-/// Background of the statements that could not be turned into steps.
-pub const UNTRANSLATED_BG: &str = "#ffcccc";
-
 pub struct Generated {
     pub program: Program,
-    /// Parts of the postcondition kept as plain (tinted) statements.
-    pub untranslated: usize,
+    /// Outputs no step gives a value (the postcondition only describes them).
+    pub unset: Vec<String>,
 }
 
 struct Words {
@@ -39,6 +36,8 @@ struct Words {
     array: &'static str,
     record: &'static str,
     main: &'static str,
+    /// The statement that shows the outputs at the end: `Ki: s, db`.
+    out: &'static str,
     // names of the variables the algorithms need
     sum: &'static str,
     count: &'static str,
@@ -66,6 +65,7 @@ const HU: Words = Words {
     array: "Tömb",
     record: "Rekord",
     main: "Főprogram",
+    out: "Ki:",
     sum: "s",
     count: "db",
     found: "van",
@@ -92,6 +92,7 @@ const EN: Words = Words {
     array: "Array",
     record: "Record",
     main: "Main",
+    out: "Out:",
     sum: "s",
     count: "cnt",
     found: "found",
@@ -377,9 +378,10 @@ struct Gen<'a> {
     locals: Vec<(String, String)>,
     /// Outputs that already have their value.
     assigned: HashSet<String>,
+    /// Arrays given their value element by element (`y[1]=…`, `∀i∈[2..n]:(y[i]=…)`).
+    elems: HashSet<String>,
     active: Vec<String>,
     renames: Vec<(String, String)>,
-    untranslated: usize,
 }
 
 pub fn from_spec(spec: &Spec, title: &str) -> Generated {
@@ -389,9 +391,9 @@ pub fn from_spec(spec: &Spec, title: &str) -> Generated {
         taken: HashSet::new(),
         locals: vec![],
         assigned: HashSet::new(),
+        elems: HashSet::new(),
         active: vec![],
         renames: vec![],
-        untranslated: 0,
     };
     g.taken.extend(spec.decls.iter().map(|d| d.name.clone()));
     g.taken.extend(spec.aliases.keys().cloned());
@@ -410,8 +412,24 @@ pub fn from_spec(spec: &Spec, title: &str) -> Generated {
     let mut main = Diagram::new();
     main.name = Rich::plain(if title.is_empty() { g.w.main } else { title });
     main.show_return = false;
-    main.body = seq(g.postcondition());
+    let mut body = g.block(&conjuncts(&spec.post));
+    let outs: Vec<&str> = spec
+        .decls
+        .iter()
+        .filter(|d| d.role == Role::Out)
+        .map(|d| d.name.as_str())
+        .collect();
+    if !outs.is_empty() {
+        body.push(stmt(format!("{} {}", g.w.out, outs.join(", "))));
+    }
+    main.body = seq(body);
     g.finish_locals(&mut main);
+    let unset = spec
+        .decls
+        .iter()
+        .filter(|d| d.role == Role::Out && d.init.is_none() && !g.assigned.contains(&d.name))
+        .map(|d| d.name.clone())
+        .collect();
     program.diagrams = vec![main];
     let mut funcs: Vec<_> = spec.funcs.iter().collect();
     funcs.sort_by_key(|(_, f)| f.body.start);
@@ -419,10 +437,7 @@ pub fn from_spec(spec: &Spec, title: &str) -> Generated {
         let d = g.function(name, f);
         program.diagrams.push(d);
     }
-    Generated {
-        program,
-        untranslated: g.untranslated,
-    }
+    Generated { program, unset }
 }
 
 impl Gen<'_> {
@@ -974,30 +989,24 @@ impl Gen<'_> {
         }
     }
 
-    /// `∀i∈[a..b]:(y[i]=…)`: the element assignments, as (target, value).
-    fn elementwise<'e>(&self, body: &'e Expr, var: &str) -> Option<Vec<(&'e Expr, &'e Expr)>> {
-        conjuncts(body)
-            .into_iter()
-            .map(|c| {
-                let (l, r) = equation(c)?;
-                let is_elem = |e: &Expr| match &*e.kind {
-                    ExprKind::Index(base, idx) => {
-                        self.target(base).is_some()
-                            && idx
-                                .iter()
-                                .any(|i| matches!(&*i.kind, ExprKind::Var(v) if v == var))
-                    }
-                    _ => false,
-                };
-                if is_elem(l) {
-                    Some((l, r))
-                } else if is_elem(r) {
-                    Some((r, l))
-                } else {
-                    None
-                }
-            })
-            .collect()
+    /// `y[…]`: an element of an output array that has no value yet, or is given one element by
+    /// element.
+    fn element(&self, e: &Expr) -> Option<String> {
+        let ExprKind::Index(base, _) = &*e.kind else {
+            return None;
+        };
+        match &*base.kind {
+            ExprKind::Var(n)
+                if self
+                    .spec
+                    .decl(n)
+                    .is_some_and(|d| d.role != Role::In && d.init.is_none())
+                    && (!self.assigned.contains(n) || self.elems.contains(n)) =>
+            {
+                Some(n.clone())
+            }
+            _ => None,
+        }
     }
 
     /// The outputs a part of the postcondition sets, and the ones it reads.
@@ -1023,28 +1032,30 @@ impl Gen<'_> {
                 if let Some(ts) = self.targets(t) {
                     return (ts.into_iter().flatten().collect(), outputs(v));
                 }
+                if let Some(n) = self.element(t) {
+                    // `y[i]=y[i-1]+x[i]` reads elements set before
+                    return (vec![n], outputs(c));
+                }
             }
         }
         if let ExprKind::Quant {
-            all: true,
-            var,
-            body,
-            ..
+            all: true, body, ..
         } = &*c.kind
-            && let Some(pairs) = self.elementwise(body, var)
         {
-            let sets: Vec<String> = pairs.iter().flat_map(|(t, _)| outputs(t)).collect();
-            let reads = outputs(c)
-                .into_iter()
-                .filter(|n| !sets.contains(n))
-                .collect();
-            return (sets, reads);
+            let sets = self.sets_of(body);
+            if !sets.is_empty() {
+                let reads = outputs(c)
+                    .into_iter()
+                    .filter(|n| !sets.contains(n))
+                    .collect();
+                return (sets, reads);
+            }
         }
         (vec![], outputs(c))
     }
 
-    fn postcondition(&mut self) -> Vec<Node> {
-        let parts = conjuncts(&self.spec.post);
+    /// The steps of the parts of the postcondition (or of a `∀` loop's body).
+    fn block(&mut self, parts: &[&Expr]) -> Vec<Node> {
         let mut done = vec![false; parts.len()];
         let mut out = vec![];
         // the parts that set outputs, each once the outputs it reads have their values
@@ -1058,22 +1069,23 @@ impl Gen<'_> {
                         .all(|r| self.assigned.contains(r) || sets.contains(r))
             });
             let Some(k) = ready else { break };
-            self.part(k, &parts, &mut done, &mut out);
+            self.part(k, parts, &mut done, &mut out);
         }
-        // the rest in the order written: what still sets something, then the plain conditions
+        // the rest in the order written; the plain conditions are left out there
         for k in 0..parts.len() {
             if !done[k] {
-                self.part(k, &parts, &mut done, &mut out);
+                self.part(k, parts, &mut done, &mut out);
             }
         }
         out
     }
 
     /// Part `k` of the postcondition. `c -> …` takes a `not c -> …` along as its else branch.
+    /// A part that sets no output is a condition on the result: it needs no steps.
     fn part(&mut self, k: usize, parts: &[&Expr], done: &mut [bool], out: &mut Vec<Node>) {
         done[k] = true;
-        if stray(parts[k], true) {
-            return self.keep(parts[k], out);
+        if stray(parts[k], true) || self.sets_and_reads(parts[k]).0.is_empty() {
+            return;
         }
         let ExprKind::Bin(BinOp::Imp, a, b) = &*parts[k].kind else {
             return self.step(parts[k], out);
@@ -1176,11 +1188,12 @@ impl Gen<'_> {
         let (first, then): (Vec<_>, Vec<_>) = conjuncts(b)
             .into_iter()
             .partition(|p| self.sets_and_reads(p).0.iter().any(|s| reads.contains(s)));
+        // each branch may set the same outputs, the else branch also what runs first
+        // (`nem van -> m=0` after the FELTMAX above)
+        let before = self.assigned.clone();
         for p in first {
             self.step(p, out);
         }
-        // each branch may set the same outputs
-        let before = self.assigned.clone();
         let mut yes = vec![];
         for p in then {
             self.step(p, &mut yes);
@@ -1208,13 +1221,6 @@ impl Gen<'_> {
         }));
     }
 
-    fn keep(&mut self, c: &Expr, out: &mut Vec<Node>) {
-        let mut n = stmt(self.text(c));
-        n.bg = Some(UNTRANSLATED_BG.into());
-        out.push(n);
-        self.untranslated += 1;
-    }
-
     /// One part of the postcondition.
     fn step(&mut self, c: &Expr, out: &mut Vec<Node>) {
         if let Some((l, r)) = equation(c) {
@@ -1223,12 +1229,21 @@ impl Gen<'_> {
                 return;
             }
             for (t, v) in [(l, r), (r, l)] {
-                let Some(ts) = self.targets(t) else { continue };
-                self.assign(t, &ts, v, out);
-                self.assigned.extend(ts.into_iter().flatten());
-                return;
+                if let Some(ts) = self.targets(t) {
+                    self.assign(t, &ts, v, out);
+                    self.assigned.extend(ts.into_iter().flatten());
+                    return;
+                }
+                if let Some(n) = self.element(t) {
+                    let v = self.value(v, out);
+                    out.push(stmt(format!("{}:={v}", self.text(t))));
+                    self.assigned.insert(n.clone());
+                    self.elems.insert(n);
+                    return;
+                }
             }
         }
+        // `∀i∈[a..b]:(…)` that sets outputs: a counting loop of the steps of its body
         if let ExprKind::Quant {
             all: true,
             var,
@@ -1236,30 +1251,18 @@ impl Gen<'_> {
             hi,
             body,
         } = &*c.kind
-            && let Some(pairs) = self.elementwise(body, var)
+            && !self.sets_of(body).is_empty()
         {
             self.local(var, self.w.int);
             self.active.push(var.clone());
-            let mut steps = vec![];
-            let mut sets = vec![];
-            for (t, v) in pairs {
-                let v = self.value(v, &mut steps);
-                steps.push(stmt(format!("{}:={v}", self.text(t))));
-                if let ExprKind::Index(base, _) = &*t.kind
-                    && let Some(n) = self.target(base)
-                {
-                    sets.push(n);
-                }
-            }
+            let steps = self.block(&conjuncts(body));
             self.active.pop();
             out.push(while_loop(
                 format!("{var}={}..{}", self.text(lo), self.text(hi)),
                 steps,
             ));
-            self.assigned.extend(sets);
-            return;
         }
-        self.keep(c, out);
+        // anything else sets nothing: a condition on the result, which needs no steps
     }
 
     fn assign(&mut self, t: &Expr, ts: &[Option<String>], v: &Expr, out: &mut Vec<Node>) {
@@ -1324,10 +1327,8 @@ impl Gen<'_> {
             stray(&f.body, false)
         };
         let ret = match &*f.body.kind {
-            _ if unclear => {
-                self.keep(&f.body, &mut body);
-                String::new()
-            }
+            // no steps for it: the function returns the body as written
+            _ if unclear => self.text(&f.body),
             ExprKind::Macro {
                 name: m,
                 var,
@@ -1419,7 +1420,7 @@ mod tests {
         );
         assert_eq!(
             out,
-            "== T\nvars i:Egész\ndb:=0\n[while i=1..n]\n  [if szamok[i] mod 2 = 1]\n    db:=db+1\n"
+            "== T\nvars i:Egész\ndb:=0\n[while i=1..n]\n  [if szamok[i] mod 2 = 1]\n    db:=db+1\nKi: db\n"
         );
     }
 
@@ -1430,7 +1431,7 @@ mod tests {
         );
         assert_eq!(
             out,
-            "== T\nvars i:Integer\ns:=0\n[while i=1..n]\n  [if x[i]>0]\n    s:=s+x[i]\n"
+            "== T\nvars i:Integer\ns:=0\n[while i=1..n]\n  [if x[i]>0]\n    s:=s+x[i]\nOut: s\n"
         );
     }
 
@@ -1443,7 +1444,7 @@ mod tests {
             out,
             "== T\nvars i:Egész, j:Egész\n\
              mi:=1\nme:=x[1]\n[while i=2..n]\n  [if x[i]>me]\n    mi:=i\n    me:=x[i]\n\
-             j:=1\n[while j≤n és nem (x[j]<0)]\n  j:=j+1\nvan:=j≤n\n[if van]\n  ind:=j\n"
+             j:=1\n[while j≤n és nem (x[j]<0)]\n  j:=j+1\nvan:=j≤n\n[if van]\n  ind:=j\nKi: mi, me, van, ind\n"
         );
     }
 
@@ -1456,7 +1457,7 @@ mod tests {
             out.starts_with("== T\nvars maxind:Egész, i:Egész\nmaxind:=1\nme:=x[1]\n"),
             "{out}"
         );
-        assert!(out.ends_with("k:=me*2\n"), "{out}");
+        assert!(out.ends_with("k:=me*2\nKi: me, k\n"), "{out}");
     }
 
     #[test]
@@ -1466,7 +1467,7 @@ mod tests {
         );
         assert_eq!(
             out,
-            "== T\nvars i:Egész, db:Egész, j:Egész\n[while i=1..n]\n  db:=0\n  [while j=1..m]\n    [if t[i,j]>0]\n      db:=db+1\n  y[i]:=db\n"
+            "== T\nvars i:Egész, db:Egész, j:Egész\n[while i=1..n]\n  db:=0\n  [while j=1..m]\n    [if t[i,j]>0]\n      db:=db+1\n  y[i]:=db\nKi: y\n"
         );
     }
 
@@ -1477,19 +1478,19 @@ mod tests {
         );
         assert_eq!(
             out,
-            "== T\nvars i:Egész\ni:=1\n[while i≤n és nem jo(i)]\n  i:=i+1\nvan:=i≤n\n\
+            "== T\nvars i:Egész\ni:=1\n[while i≤n és nem jo(i)]\n  i:=i+1\nvan:=i≤n\nKi: van\n\
              == jo(i:Egész):Logikai\n-\nreturn x[i]>0 és x[i] mod 2=0\n"
         );
     }
 
     #[test]
-    fn condmax_and_untranslated_parts() {
+    fn condmax_and_a_condition_on_the_result() {
         let spec = parse(
             "Be:\nn∈N,\nx∈Z[1..n]\nKi:\nvan∈L,\nmi∈N,\nme∈Z\nEf:\n-\nUf:\n(van,mi,me)=MAXHA(i=1..n, x[i], x[i]<0) és me<0\n",
         )
         .unwrap();
         let g = from_spec(&spec, "");
-        assert_eq!(g.untranslated, 1);
+        assert!(g.unset.is_empty());
         let out = outline(&g.program);
         assert_eq!(
             out,
@@ -1497,7 +1498,7 @@ mod tests {
              [case nem (x[i]<0)]\n    -\n\
              [case x[i]<0 és van]\n    [if x[i]>me]\n      mi:=i\n      me:=x[i]\n\
              [case x[i]<0 és nem van]\n    van:=igaz\n    mi:=i\n    me:=x[i]\n\
-             me<0 (!)\n"
+             Ki: van, mi, me\n"
                 .replace("[case", "  [case")
         );
     }
@@ -1511,7 +1512,7 @@ mod tests {
         assert_eq!(
             out,
             "== T\nvars i:Egész\ni:=1\n[while i≤n és nem (ar[i]<k)]\n  i:=i+1\nvan:=i≤n\n\
-             [if van]\n  ind:=i\n[if van]\n  sorszam:=ind\n[else]\n  sorszam:=-1\n"
+             [if van]\n  ind:=i\n[if van]\n  sorszam:=ind\n[else]\n  sorszam:=-1\nKi: sorszam\n"
         );
         // a search inside the condition comes first; the rest of the condition decides
         let out = outline_of(
@@ -1519,7 +1520,7 @@ mod tests {
              (van,ind)=SEARCH(i=1..n-1, x[i]<x[i+1]) and\n      van -> lib=x[ind]\n",
         );
         assert!(
-            out.ends_with("[if van]\n  ind:=i\n[if van]\n  lib:=x[ind]\n"),
+            out.ends_with("[if van]\n  ind:=i\n[if van]\n  lib:=x[ind]\nOut: lib\n"),
             "{out}"
         );
     }
@@ -1543,7 +1544,7 @@ mod tests {
         );
         assert_eq!(
             out,
-            "== T\natl:=ossz(n)/n\n\
+            "== T\natl:=ossz(n)/n\nKi: atl\n\
              == ossz(k:Egész):Valós\nvars s:Valós, i:Egész\ns:=0\n[while i=1..k]\n  s:=s+x[i]\nreturn s\n"
         );
     }
@@ -1559,15 +1560,15 @@ mod tests {
     fn branches_that_exclude_each_other_are_one_decision() {
         assert_eq!(
             table("s∈Z\nEf:\n-\nUf:\n(n>m -> s=n) és (n≤m -> s=m)"),
-            "== T\n[if n>m]\n  s:=n\n[else]\n  s:=m\n"
+            "== T\n[if n>m]\n  s:=n\n[else]\n  s:=m\nKi: s\n"
         );
         assert_eq!(
             table("s∈Z\nEf:\n-\nUf:\n(n<m -> s=n) és (m≤n -> s=m)"),
-            "== T\n[if n<m]\n  s:=n\n[else]\n  s:=m\n"
+            "== T\n[if n<m]\n  s:=n\n[else]\n  s:=m\nKi: s\n"
         );
         assert_eq!(
             table("s∈Z\nEf:\n-\nUf:\n(n>0 -> s=1) és (n=0 -> s=0) és (n<0 -> s=-1)"),
-            "== T\n[case n>0]\n  s:=1\n[case n=0]\n  s:=0\n[case n<0]\n  s:=-1\n"
+            "== T\n[case n>0]\n  s:=1\n[case n=0]\n  s:=0\n[case n<0]\n  s:=-1\nKi: s\n"
         );
     }
 
@@ -1576,7 +1577,7 @@ mod tests {
         assert_eq!(
             table("s∈Z\nEf:\n-\nUf:\ns=SZUMMA(i=1..n, SZUMMA(i=1..m, t[1,i]))"),
             "== T\nvars i:Egész, s2:Egész, i2:Egész\ns:=0\n[while i=1..n]\n  s2:=0\n  \
-             [while i2=1..m]\n    s2:=s2+t[1,i2]\n  s:=s+s2\n"
+             [while i2=1..m]\n    s2:=s2+t[1,i2]\n  s:=s+s2\nKi: s\n"
         );
     }
 
@@ -1585,12 +1586,12 @@ mod tests {
         assert_eq!(
             table("van∈L\nEf:\n-\nUf:\nvan=∃i∈[1..n]:(SZUMMA(j=1..m, t[i,j])>0)"),
             "== T\nvars i:Egész, s:Egész, j:Egész\nvan:=hamis\ni:=1\n\
-             [while i≤n és nem van]\n  s:=0\n  [while j=1..m]\n    s:=s+t[i,j]\n  van:=s>0\n  i:=i+1\n"
+             [while i≤n és nem van]\n  s:=0\n  [while j=1..m]\n    s:=s+t[i,j]\n  van:=s>0\n  i:=i+1\nKi: van\n"
         );
         let search =
             table("van∈L,\nk∈N\nEf:\n-\nUf:\n(van,k)=KERES(i=1..n, SZUMMA(j=1..m, t[i,j])>3)");
         assert!(
-            search.ends_with("  van:=s>3\n  i:=i+1\n[if van]\n  k:=i-1\n"),
+            search.ends_with("  van:=s>3\n  i:=i+1\n[if van]\n  k:=i-1\nKi: van, k\n"),
             "{search}"
         );
         let all = table("van∈L\nEf:\n-\nUf:\nvan=∀i∈[1..n]:(DARAB(j=1..m, t[i,j]>0)>0)");
@@ -1601,7 +1602,7 @@ mod tests {
         let select = table("k∈N\nEf:\n-\nUf:\nk=KIVÁLASZT(i>=1, SZUMMA(j=1..m, t[i,j])>0)");
         assert!(
             select.contains("van:=hamis\ni:=0\n[while nem van]\n  i:=i+1\n  s:=0\n")
-                && select.ends_with("  van:=s>0\nk:=i\n"),
+                && select.ends_with("  van:=s>0\nk:=i\nKi: k\n"),
             "{select}"
         );
         let condmax = table(
@@ -1615,7 +1616,7 @@ mod tests {
             "s∈Z\nEf:\n-\nUf:\n(DARAB(i=1..n, x[i]>0)>1 -> s=1) és (DARAB(i=1..n, x[i]>0)≤1 -> s=0)",
         );
         assert!(
-            decision.ends_with("[if db>1]\n  s:=1\n[else]\n  s:=0\n"),
+            decision.ends_with("[if db>1]\n  s:=1\n[else]\n  s:=0\nKi: s\n"),
             "{decision}"
         );
         for out in [search, all, select, condmax, decision] {
@@ -1628,7 +1629,7 @@ mod tests {
         assert_eq!(
             table("mi∈N,\nme∈Z\nEf:\nn>0\nUf:\n(mi,me)=MAX(i=1..n, SZUMMA(j=1..m, t[i,j]))"),
             "== T\nvars i:Egész, s:Egész, j:Egész\n[while i=1..n]\n  s:=0\n  [while j=1..m]\n    \
-             s:=s+t[i,j]\n  [if i=1 vagy s>me]\n    mi:=i\n    me:=s\n"
+             s:=s+t[i,j]\n  [if i=1 vagy s>me]\n    mi:=i\n    me:=s\nKi: mi, me\n"
         );
     }
 
@@ -1637,7 +1638,7 @@ mod tests {
         assert_eq!(
             table("s∈Z\nEf:\nn>0\nUf:\ns=MAX(i=1..n, x[i]).maxval+1"),
             "== T\nvars maxind:Egész, maxért:Egész, i:Egész\nmaxind:=1\nmaxért:=x[1]\n\
-             [while i=2..n]\n  [if x[i]>maxért]\n    maxind:=i\n    maxért:=x[i]\ns:=maxért+1\n"
+             [while i=2..n]\n  [if x[i]>maxért]\n    maxind:=i\n    maxért:=x[i]\ns:=maxért+1\nKi: s\n"
         );
         // issue #5: the maximum inside the condition of a filter
         let out = outline_of(
@@ -1648,13 +1649,32 @@ mod tests {
     }
 
     #[test]
-    fn a_pattern_that_cannot_become_steps_is_kept_tinted() {
+    fn elements_and_loops_with_decisions_become_steps() {
+        assert_eq!(
+            table("y∈Z[1..n]\nEf:\n-\nUf:\ny[1]=x[1] és ∀i∈[2..n]:(y[i]=y[i-1]+x[i])"),
+            "== T\nvars i:Egész\ny[1]:=x[1]\n[while i=2..n]\n  y[i]:=y[i-1]+x[i]\nKi: y\n"
+        );
+        assert_eq!(
+            table("y∈Z[1..n]\nEf:\n-\nUf:\n∀i∈[1..n]:((x[i]>0 -> y[i]=1) és (x[i]≤0 -> y[i]=0))"),
+            "== T\nvars i:Egész\n[while i=1..n]\n  [if x[i]>0]\n    y[i]:=1\n  [else]\n    y[i]:=0\nKi: y\n"
+        );
+        // conditions on the result are left out
+        assert_eq!(
+            table(
+                "db∈N,\ny∈Z[1..db]\nEf:\n-\nUf:\n(db,y)=KIVÁLOGAT(i=1..n, x[i]>0, x[i]) és ∀i∈[1..db]:(y[i]>0)"
+            ),
+            "== T\nvars i:Egész\ndb:=0\n[while i=1..n]\n  [if x[i]>0]\n    db:=db+1\n    y[db]:=x[i]\nKi: db, y\n"
+        );
+    }
+
+    #[test]
+    fn a_pattern_that_cannot_become_steps_leaves_its_output_unset() {
         let spec = parse(&format!(
             "{TABLE}s∈Z\nEf:\nn>0\nUf:\ns=MAX(i=1..n, x[i]).3{REST}"
         ))
         .unwrap();
         let g = from_spec(&spec, "T");
-        assert_eq!(g.untranslated, 1);
-        assert_eq!(outline(&g.program), "== T\ns=MAX(i=1..n, x[i]).3 (!)\n");
+        assert_eq!(g.unset, ["s"]);
+        assert_eq!(outline(&g.program), "== T\nKi: s\n");
     }
 }

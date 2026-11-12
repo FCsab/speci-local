@@ -25,7 +25,7 @@ fn green(spec: &str, tests: &[&str]) {
 fn auto_stuki_agrees(spec: &speci_local::parser::Spec, tests: &[&str]) {
     use speci_local::stuki::{from_spec::from_spec, run::Runner};
     let built = from_spec(spec, "");
-    if built.untranslated > 0 {
+    if !built.unset.is_empty() {
         return;
     }
     let runner = Runner::new(&built.program, spec)

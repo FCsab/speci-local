@@ -131,7 +131,8 @@ Switch between the two editors with the **Specification** / **Stuki** tabs in th
 | In the specification | In the structogram |
 | --- | --- |
 | `x=…` in the postcondition | an assignment `x:=…` |
-| `∀i∈[1..n]:(y[i]=…)` | a counting loop |
+| `y[1]=…` | an assignment `y[1]:=…` |
+| `∀i∈[1..n]:(y[i]=…)`, also with `c -> y[i]=…` inside | a counting loop (with a decision inside) |
 | a pattern (`SUM`, `COUNT`, `MAX`/`MIN`, `EXISTS`, `FORALL`, `SELECT`, `SEARCH`, `COPY`, `MIS`, `CONDMAX`/`CONDMIN`, under any of its names) or a quantifier | the standard algorithm taught at ELTE |
 | a pattern inside another one, or inside a condition (`y[i]=DARAB(j=1..m, …)`, `∃i∈[1..n]:(SZUMMA(…)>0)`) | its own steps, computed first into a helper variable |
 | `c -> x=…` | a decision; a matching `not c -> x=…`, or the other side of a comparison (`n>m` / `n≤m`), becomes its else branch |
@@ -139,7 +140,8 @@ Switch between the two editors with the **Specification** / **Stuki** tabs in th
 | an `Fv:` function | a structogram of its own, with its header (`f(i:Egész):Logikai`) and return value |
 
 - Loop variables and other helper variables are listed as local declarations, and the steps come in the order the outputs depend on each other. A nested loop that reuses its outer loop's variable gets a variable of its own (`i2`).
-- Parts that only state a condition (like `db≤n`), and patterns used in a way that has no standard algorithm (like `MAX(…).maxval` inside a formula), can't become steps. They are kept as statements tinted red, for you to finish by hand. Parts like `k=k` that only mention a variable are left out.
+- Parts that only state a condition on the result (like `db≤n`) need no steps and are left out, like `k=k` that only mentions a variable. If the postcondition only describes an output without saying how to compute it (like `2*s=r`), the output gets no steps and the status line names it.
+- The main structogram ends with a `Ki: …` (`Out: …`) statement that shows the outputs.
 - The texts follow the specification's language: `Be/Ki/Ef/Uf` gives `és`, `nem`, `igaz`, `Egész`, …; `In/Out/Pre/Post` gives `and`, `not`, `true`, `Integer`, ….
 
 ### Run tests

@@ -192,10 +192,10 @@ impl App {
         };
         let g = stuki::from_spec::from_spec(&spec, &self.doc.title);
         let mut message = "Structograms built from the specification".to_string();
-        if g.untranslated > 0 {
+        if !g.unset.is_empty() {
             message += &format!(
-                "; {} part(s) of the postcondition couldn't be turned into steps (tinted red)",
-                g.untranslated
+                "; the postcondition doesn't say how to compute {} (write it with `=` or a pattern)",
+                g.unset.join(", ")
             );
         }
         self.stuki.request(Pending::FromSpec(g.program, message));

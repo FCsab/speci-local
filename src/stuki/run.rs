@@ -179,6 +179,8 @@ impl Compiler<'_> {
             match &n.kind {
                 Kind::Noop => {}
                 Kind::Statement(t) if matches!(t.text.trim(), "" | "-") => {}
+                // `Ki: s, db` only shows the outputs
+                Kind::Statement(t) if is_output(&t.text) => {}
                 Kind::Statement(t) => match self.fragment(&t.text, id)? {
                     Fragment::Assign(target, value) => {
                         target_ok(&target).map_err(|m| (m, Some(id)))?;
@@ -275,6 +277,12 @@ impl Compiler<'_> {
             names,
         })
     }
+}
+
+/// `Ki: s, db` / `Out: s, db`: the statement Auto Stuki ends with, showing the outputs.
+fn is_output(text: &str) -> bool {
+    let t = text.trim_start();
+    t.starts_with("Ki:") || t.starts_with("Out:")
 }
 
 fn target_ok(e: &Expr) -> Result<(), String> {
@@ -1083,6 +1091,24 @@ mod tests {
                 "y∈Z[1..n]\nEf:\n-\nUf:\ny=MÁSOL(i=1..n, SZUMMA(j=1..m, t[i,j]))",
                 "y: [0, -3, 5]",
             ),
+            // shapes that used to be left as red statements
+            (
+                "y∈Z[1..n]\nEf:\n-\nUf:\ny[1]=x[1] és ∀i∈[2..n]:(y[i]=y[i-1]+x[i])",
+                "y: [5, 3, 10]",
+            ),
+            (
+                "y∈Z[1..n]\nEf:\n-\nUf:\n∀i∈[1..n]:((x[i]>0 -> y[i]=1) és (x[i]≤0 -> y[i]=0))",
+                "y: [1, 0, 1]",
+            ),
+            (
+                "y∈Z[1..n]\nEf:\n-\nUf:\n∀i∈[1..n]:(x[i]>0 -> y[i]=x[i]) és ∀i∈[1..n]:(x[i]≤0 -> y[i]=0)",
+                "y: [5, 0, 7]",
+            ),
+            (
+                "y∈Z[1..n]\nEf:\n-\nUf:\n∀i∈[1..2]:(y[i]=x[i]) és ∀i∈[3..n]:(y[i]=0)",
+                "y: [5, -2, 0]",
+            ),
+            ("s∈Z\nEf:\n-\nUf:\ns=SZUMMA(i=1..n, x[i]) és s≥0", "s: 10"),
         ];
         for (tail, outputs) in cases {
             let text = format!("{table}{tail}{rest}");
@@ -1093,7 +1119,7 @@ mod tests {
                 "{tail}: the test case itself fails"
             );
             let built = from_spec(&spec, "");
-            assert_eq!(built.untranslated, 0, "{tail}");
+            assert!(built.unset.is_empty(), "{tail}");
             let v = run_tests(&built.program, &spec, &[test], &AtomicBool::new(false)).remove(0);
             assert!(v.pass, "{tail}\n{}\n{:?}", v.message, v.values);
         }
