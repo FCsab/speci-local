@@ -1171,10 +1171,18 @@ impl Gen<'_> {
                 self.step(p, out);
             }
         }
+        // `van -> (van,,m)=FELTMAX(…)`: what sets the condition's own variables runs first
+        let reads = vars_in(a);
+        let (first, then): (Vec<_>, Vec<_>) = conjuncts(b)
+            .into_iter()
+            .partition(|p| self.sets_and_reads(p).0.iter().any(|s| reads.contains(s)));
+        for p in first {
+            self.step(p, out);
+        }
         // each branch may set the same outputs
         let before = self.assigned.clone();
         let mut yes = vec![];
-        for p in conjuncts(b) {
+        for p in then {
             self.step(p, &mut yes);
         }
         let set_in_yes = std::mem::replace(&mut self.assigned, before);

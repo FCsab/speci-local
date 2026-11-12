@@ -1,4 +1,5 @@
-//! Conditions and expressions: the precedence levels from `->` down to the atoms.
+//! Conditions and expressions: the precedence levels from `or` down to the atoms.
+//! `->` binds tighter than `and`/`or`, so `p -> a and not p -> b` is two implications (ELTE usage).
 
 use super::ast::{BinOp, Expr, ExprKind, MACROS, line_col, macro_alias};
 use super::grammar::{PResult, Parser, bool_word};
@@ -42,16 +43,7 @@ impl Parser<'_> {
     }
 
     pub(super) fn expr(&mut self) -> PResult<Expr> {
-        self.nested(Self::implication)
-    }
-    fn implication(&mut self) -> PResult<Expr> {
-        let start = self.peek().start;
-        let l = self.or()?;
-        if self.eat("->") {
-            let r = self.expr()?;
-            return Ok(self.mk(start, ExprKind::Bin(BinOp::Imp, l, r)));
-        }
-        Ok(l)
+        self.nested(Self::or)
     }
     fn or(&mut self) -> PResult<Expr> {
         let start = self.peek().start;
@@ -64,10 +56,19 @@ impl Parser<'_> {
     }
     fn and(&mut self) -> PResult<Expr> {
         let start = self.peek().start;
-        let mut l = self.not()?;
+        let mut l = self.implication()?;
         while self.eat("and") {
-            let r = self.not()?;
+            let r = self.implication()?;
             l = self.mk(start, ExprKind::Bin(BinOp::And, l, r));
+        }
+        Ok(l)
+    }
+    fn implication(&mut self) -> PResult<Expr> {
+        let start = self.peek().start;
+        let l = self.not()?;
+        if self.eat("->") {
+            let r = self.nested(Self::implication)?;
+            return Ok(self.mk(start, ExprKind::Bin(BinOp::Imp, l, r)));
         }
         Ok(l)
     }

@@ -675,3 +675,21 @@ fn online_editor_compat() {
     );
     assert!(m.contains("same index range"), "{m}");
 }
+
+/// `p -> a és nem p -> b` is two implications, not `p -> ((a és nem p) -> b)`, which holds whenever p does.
+#[test]
+fn implications_joined_by_and() {
+    let spec = "Be:\nn∈N, t∈Termek[1..n], Termek=(b:N x a:N x k:N x aDb:N x kDb:N)\nSa:\nvan∈L\nKi:\nmaxhaszon∈N\nEf:\n1<=n<=100 és ∀i∈[1..n]:(t[i].b<=t[i].k<=t[i].a)\nUf:\nvan -> (van, , maxhaszon)=FELTMAX(i=1..n, (t[i].k-t[i].b)*t[i].kDb, t[i].kDb>t[i].aDb) és\nnem van -> maxhaszon = 0";
+    let t = |van: &str, max: u32| {
+        format!(
+            "n: 6\nt: [{{b: 9, a: 10, k: 9, aDb: 1, kDb: 8}}, {{b: 8, a: 11, k: 9, aDb: 2, kDb: 7}}, {{b: 8, a: 11, k: 9, aDb: 0, kDb: 9}}, {{b: 7, a: 11, k: 8, aDb: 3, kDb: 7}}, {{b: 6, a: 10, k: 8, aDb: 4, kDb: 8}}, {{b: 5, a: 10, k: 8, aDb: 5, kDb: 5}}]\nvan: {van}\nmaxhaszon: {max}"
+        )
+    };
+    green(spec, &[&t("true", 16)]);
+    red(spec, &t("true", 15));
+    red(spec, &t("true", 0));
+    red(spec, &t("false", 16));
+    let none = "n: 1\nt: [{b: 1, a: 2, k: 1, aDb: 5, kDb: 1}]\nvan: false\nmaxhaszon: 0";
+    green(spec, &[none]);
+    red(spec, &none.replace("maxhaszon: 0", "maxhaszon: 3"));
+}
