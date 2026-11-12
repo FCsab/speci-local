@@ -87,8 +87,9 @@ speci-local accepts and rejects the same specifications as the online editor and
 | --- | --- |
 | Types | elementary sets, intervals, arrays and matrices (with an initial value and any index range), records, type aliases, array literals with an index range (`[0..:1, 2]`) |
 | Functions | one per `Fn:`/`Fv:`/`Def:` header, signature first |
-| Logic | ∀/∃ and their word forms (`forall`/`minden`, `exists`/`létezik`, `in`/`eleme`), `true`/`igaz`, `false`/`hamis`, `->` |
+| Logic | ∀/∃ and their word forms (`forall`/`minden`, `exists`/`létezik`, `in`/`eleme`), `true`/`igaz`, `false`/`hamis`, `->`, cases `{a, ha c; b egyébként}` |
 | Arithmetic | `\|`, `∤`, `<>`, `mod`/`%`, `div`, `n!`, `abs`, `sqrt`, `round`/`kerekít`, `length`/`hossz`, `from`/`tól`, `to`/`ig` |
+| Test data | YAML; an array or record may span several rows, and Enter in the test case editor indents like a JSON editor |
 | Patterns | `SUM`, `COUNT`, `MAX`, `MIN`, `EXISTS`, `FORALL`, `SELECT`, `SEARCH`, `COPY`, `MIS`, `CONDMAX`, `CONDMIN` and their other names (`SZUMMA`, `MEGSZÁMOL`, `ELDÖNT`, `MIND`, `KERES`, `KIVÁLASZT`, `MÁSOL`/`MAP`, `KIVÁLOGAT`/`FILTER`, `MAXHA`, `MINHA`, …) |
 
 It also rejects what the online editor rejects: `→`, `∧`/`∨`, `ABS`, `element`, `SELECT(i≥…)`, several functions in one block, outputs in the precondition, declared variables missing from the postcondition, and test cases that leave out a value or repeat a constant.

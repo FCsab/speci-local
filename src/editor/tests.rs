@@ -8,6 +8,10 @@ struct S {
 }
 
 fn harness(text: &str) -> Harness<'static, S> {
+    harness_in(text, Lang::Spec)
+}
+
+fn harness_in(text: &str, lang: Lang) -> Harness<'static, S> {
     let id = Id::unique("t-editor");
     let symbols = scan_symbols("Be: szamok∈N[1..n], n∈N\nFv: kisebb:N->L, kisebb(i)=i<3");
     Harness::builder()
@@ -23,7 +27,7 @@ fn harness(text: &str) -> Harness<'static, S> {
                     ui,
                     id,
                     &mut s.text,
-                    Lang::Spec,
+                    lang,
                     &symbols,
                     &[],
                     &mut s.comp,
@@ -169,6 +173,28 @@ fn alt_digits_insert_symbols() {
         h.run_steps(2);
     }
     assert_eq!(h.state().text, "Uf: x∈∀∃≠≤≥");
+}
+
+#[test]
+fn enter_in_test_data_indents_like_json() {
+    // (text, cursor) → what Enter inserts; `$` is where the cursor goes
+    for (text, at, want) in [
+        ("n: 3", 4, "\n"),
+        ("x: [", 4, "\n  "),
+        ("x: []", 4, "\n  $\n"),
+        ("x: [1, 2,", 9, "\n  "),
+        ("d: [\n  {kor: 42,", 16, "\n    "),
+        ("d: [\n  {kor: 42, fizetes: 1},", 29, "\n  "),
+        ("  ]", 3, "\n  "),
+    ] {
+        assert_eq!(data_newline(text, at, at), want, "{text:?}");
+    }
+    // in the editor: one line break (not two), the indentation, the bracket on its own line
+    let mut h = harness_in("x: [", Lang::Data);
+    h.run_steps(3);
+    h.key_press(Key::Enter);
+    h.run_steps(2);
+    assert_eq!(h.state().text, "x: [\n  ");
 }
 
 #[test]

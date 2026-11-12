@@ -262,11 +262,59 @@ impl Conv<'_, '_> {
     }
 }
 
+/// Rows inside an open `[` or `{` that start at the left edge get a space: YAML rejects them
+/// ("invalid indentation in flow construct"), though such data is clear. Returns the text and
+/// the (1-based) lines that moved.
+fn indent_flow_rows(text: &str) -> (String, Vec<usize>) {
+    let mut out = String::with_capacity(text.len() + 8);
+    let mut moved = vec![];
+    let mut depth = 0i32;
+    let mut quote: Option<char> = None;
+    for (i, line) in text.split('\n').enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        if depth > 0 && quote.is_none() && line.starts_with(|c: char| !c.is_whitespace()) {
+            out.push(' ');
+            moved.push(i + 1);
+        }
+        out.push_str(line);
+        let mut prev = ' ';
+        let mut chars = line.chars();
+        while let Some(c) = chars.next() {
+            match quote {
+                Some('"') if c == '\\' => {
+                    chars.next();
+                }
+                Some(q) if c == q => quote = None,
+                Some(_) => {}
+                // a quote only starts a quoted value at its beginning (`O'Brien` is plain)
+                None if matches!(c, '"' | '\'')
+                    && (prev.is_whitespace() || "[{,:".contains(prev)) =>
+                {
+                    quote = Some(c)
+                }
+                None if c == '#' && prev.is_whitespace() => break,
+                // `[` opens a list only where a value starts (`O'Brien[` is plain text)
+                None if matches!(c, '[' | '{') && (depth > 0 || prev.is_whitespace()) => depth += 1,
+                None if matches!(c, ']' | '}') => depth = (depth - 1).max(0),
+                None => {}
+            }
+            prev = c;
+        }
+    }
+    (out, moved)
+}
+
 /// Parse one test case. Returns the environment with every variable the test defines.
 pub fn load(spec: &Spec, text: &str) -> Result<Env, Diagnostic> {
-    let docs = YamlLoader::load_from_str(text).map_err(|e| {
+    let (yaml, moved) = indent_flow_rows(text);
+    let docs = YamlLoader::load_from_str(&yaml).map_err(|e| {
         let m = e.marker();
-        Diagnostic::new(m.line().max(1), m.col() + 1, "The test data is not valid")
+        let line = m.line().max(1);
+        // the column in the text as written, before a moved row got its space
+        let col = m.col() + 1 - usize::from(moved.contains(&line) && m.col() > 0);
+        Diagnostic::new(line, col, "The test data is not valid")
             .doc("ch07-01-format.html").explain(format!("The data reader says: {}.", e.info()))
             .hint("Each line is `name: value`; arrays look like `[1, 2, 3]`, records like `{name: AS, time: 37}`.")
             .data()

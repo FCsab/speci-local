@@ -107,6 +107,16 @@ pub fn code_editor(
         if !open && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Tab)) {
             replace_selection(ui.ctx(), id, text, "  ");
         }
+        // Enter in test data indents like a JSON editor
+        if lang == Lang::Data
+            && !open
+            && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter))
+        {
+            let n = text.chars().count();
+            let (a, b) = cursor_of(ui.ctx(), id).unwrap_or((n, n));
+            let insert = data_newline(text, a, b);
+            replace(ui.ctx(), id, text, a, b, &insert);
+        }
     }
 
     // with Vim, Escape leaves Insert mode instead of the editor
@@ -179,6 +189,38 @@ fn replace_selection(ctx: &egui::Context, id: Id, text: &mut String, s: &str) {
     let n = text.chars().count();
     let (a, b) = cursor_of(ctx, id).unwrap_or((n, n));
     replace(ctx, id, text, a, b, s);
+}
+
+/// What Enter inserts in test data: the line break and the line's indentation, two spaces more
+/// inside an unclosed `[` or `{`. Between a pair (`[|]`) the closing bracket gets a line of its
+/// own, like in a JSON editor. `$` marks where the cursor goes.
+fn data_newline(text: &str, a: usize, b: usize) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let a = a.min(chars.len());
+    let b = b.clamp(a, chars.len());
+    let start = chars[..a]
+        .iter()
+        .rposition(|&c| c == '\n')
+        .map_or(0, |i| i + 1);
+    let line = &chars[start..a];
+    let indent: String = line.iter().take_while(|&&c| c == ' ').collect();
+    let open = line.iter().fold(0i32, |d, c| match c {
+        '[' | '{' => d + 1,
+        ']' | '}' => d - 1,
+        _ => d,
+    });
+    if open <= 0 {
+        return format!("\n{indent}");
+    }
+    let last = line.iter().rev().find(|c| !c.is_whitespace());
+    let next = chars[b..]
+        .iter()
+        .take_while(|&&c| c != '\n')
+        .find(|c| !c.is_whitespace());
+    match (last, next) {
+        (Some('['), Some(']')) | (Some('{'), Some('}')) => format!("\n{indent}  $\n{indent}"),
+        _ => format!("\n{indent}  "),
+    }
 }
 
 fn popup_keys(ui: &egui::Ui, id: Id, text: &mut String, comp: &mut Completion) {

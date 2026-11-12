@@ -245,3 +245,21 @@ fn arrays_and_records_are_shared_but_compare_by_value() {
     let o = run_test(&spec, data);
     assert!(o.pass, "{:?}", o.diags);
 }
+
+/// Data typed over several rows, each starting at the left edge: YAML alone rejects that.
+#[test]
+fn data_rows_may_start_at_the_left_edge() {
+    let src = "Be: n∈N, x∈Z[1..n], d∈D[1..n], D=(kor:N x fizetes:N), s∈S\nKi: m∈Z\nEf: -\nUf: m=SZUMMA(i=1..n, x[i]+d[i].kor) és s=s\n";
+    for data in [
+        "n: 2\nx: [1,\n2]\nd: [\n{kor: 3, fizetes: 0},\n{kor: 4,\nfizetes: 0}\n]\ns: x\nm: 10",
+        // brackets in a quoted text or a comment open nothing; `O'Brien` is no quote
+        "n: 2\ns: \"a[\"\nx: [1, 2] # [\nd: [{kor: 3, fizetes: 0}, {kor: 4, fizetes: 0}]\nm: 10",
+        "n: 2\ns: O'Brien[\nx: [1, 2]\nd: [{kor: 3, fizetes: 0}, {kor: 4, fizetes: 0}]\nm: 10",
+    ] {
+        let o = run_test(&spec(src), data);
+        assert!(o.pass, "{data}\n{}", render(&o.diags));
+    }
+    // an error in such a row points where it is in the text as written
+    let m = red(src, "n: 2\nx: [1,\n2}\nd: []\ns: x\nm: 0");
+    assert!(m.contains("line 3, column 2"), "{m}");
+}
