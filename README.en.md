@@ -19,6 +19,7 @@ It runs on Windows, Linux, macOS and Android from one Rust code base ([egui](htt
 
 - [Install](#install)
 - [Quick start](#quick-start)
+- [What's new in v1.0](#whats-new-in-v10)
 - [Specifications](#specifications)
 - [Stuki (structograms)](#stuki-structograms)
 - [Files and sharing](#files-and-sharing)
@@ -77,6 +78,22 @@ Notes:
 3. Everything is evaluated as you type, in the background. The test tab turns green; change `db: 3` to `db: 2` and it turns red, with the value the specification gives.
 4. Switch to the **Stuki** tab and draw the counting algorithm as a structogram.
 5. Press **Run tests**: the structogram is run on the same test case and gets its own green mark.
+
+## What's new in v1.0
+
+Key improvements and changes since v0.8.0:
+
+- **Bilingual documentation**: Full documentation is now available in Hungarian (`README.md`) and English (`README.en.md`).
+- **Editor improvements**:
+  - Typing `<=`, `>=`, and `!=` in the specification editor automatically converts them to `≤`, `≥`, `≠`.
+  - Multi-line YAML test data: arrays and records can now span multiple rows cleanly.
+  - Smart indentation: pressing Enter in the test case editor automatically indents based on open brackets and braces.
+  - Automatic file renaming: saving a specification whose task title changed automatically renames the `.sp` file if it was named after the task.
+- **Smaller size and lighter performance**:
+  - Binary sizes and memory footprint have been significantly reduced (~12 MB on Linux, ~11 MB on Windows; downloads ~5 MB).
+  - Linux now uses eframe's OpenGL renderer instead of wgpu for lower memory usage and smaller binaries.
+  - Embedded fonts are subsetted, and release builds use Link-Time Optimization (LTO).
+- **Internal cleanups**: Unified workspace dependency versions in `Cargo.toml` and cleaner codebase structure.
 
 ## Specifications
 
@@ -293,7 +310,7 @@ How the pieces are tested against each other:
 ## Releasing
 
 1. Raise `version` in `Cargo.toml`. CI alone never publishes anything.
-2. Press *Run workflow* on the Release workflow, or push a matching tag (`git tag v0.5.0 && git push origin v0.5.0`).
+2. Press *Run workflow* on the Release workflow, or push a matching tag (`git tag v1.0.0 && git push origin v1.0.0`).
 
 The workflow builds every platform, runs the tests, and attaches the files to the release.
 

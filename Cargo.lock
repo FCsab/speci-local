@@ -3196,7 +3196,7 @@ dependencies = [
 
 [[package]]
 name = "speci-local"
-version = "0.8.0"
+version = "1.0.0"
 dependencies = [
  "arboard",
  "eframe",
@@ -3215,7 +3215,7 @@ dependencies = [
 
 [[package]]
 name = "speci-local-android"
-version = "0.8.0"
+version = "1.0.0"
 dependencies = [
  "android_logger",
  "eframe",

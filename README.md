@@ -19,6 +19,7 @@ Windowson, Linuxon, macOS-en és Androidon fut, egyetlen Rust kódbázisból ([e
 
 - [Telepítés](#telepítés)
 - [Gyors kezdés](#gyors-kezdés)
+- [Újdonságok (v1.0)](#újdonságok-v10)
 - [Specifikációk](#specifikációk)
 - [Stuki (struktogramok)](#stuki-struktogramok)
 - [Fájlok és megosztás](#fájlok-és-megosztás)
@@ -77,6 +78,22 @@ Megjegyzések:
 3. Gépelés közben a háttérben minden kiértékelődik. A teszt füle zöld lesz; ha a `db: 3`-at `db: 2`-re írod át, piros lesz, és megjelenik az érték, amelyet a specifikáció ad.
 4. Válts a **Stuki** fülre, és rajzold meg a megszámolás algoritmusát struktogramként.
 5. Nyomd meg a **Run tests** gombot: a struktogram lefut ugyanazon a teszteseten, és saját zöld jelet kap.
+
+## Újdonságok (v1.0)
+
+A legutóbbi verzió (v0.8.0) óta megjelent főbb fejlesztések:
+
+- **Kétnyelvű dokumentáció**: A projekt teljes dokumentációja elérhető magyarul (`README.md`) és angolul (`README.en.md`) is.
+- **Szerkesztő újdonságok**:
+  - A kézzel beírt `<=`, `>=` és `!=` gépelés közben automatikusan átalakul `≤`, `≥`, `≠` szimbólumokká a specifikációszerkesztőben.
+  - Többsoros tesztadatok a YAML-ben: tömbök és rekordok áttekinthetően több sorba is tördelhetők.
+  - Intelligens behúzás: az Enter lenyomásakor a tesztesetszerkesztő a zárójeleknek megfelelően automatikusan behúzza a következő sort.
+  - Automatikus fájlátnevezés: a feladat címének módosításakor a mentés a fájlt is átnevezi az új címre (ha az eredeti fájlnév a korábbi címet követte).
+- **Kisebb méret és jobb teljesítmény**:
+  - A binárisok mérete és memóriahasználata jelentősen csökkent (Linuxon ~12 MB, Windowson ~11 MB; tömörített letöltés ~5 MB).
+  - Linuxon az alkalmazás közvetlenül OpenGL-t használ az eframe-en keresztül a wgpu helyett, csökkentve az indítási időt és a memóriaterhelést.
+  - A beágyazott betűtípusok optimalizálva lettek (csak a szükséges karakterek és ikonok maradtak), a release buildek pedig teljes LTO-val épülnek.
+- **Belső fejlesztések**: Egységesített workspace-függőségek a `Cargo.toml`-ban és letisztultabb belső kódstruktúra.
 
 ## Specifikációk
 
@@ -293,7 +310,7 @@ A `SKILL.md` a specifikációs nyelv kézikönyve úgy, ahogy az online szerkesz
 ## Kiadás
 
 1. Emeld meg a `version` értékét a `Cargo.toml`-ban. A CI magától soha nem ad ki semmit.
-2. Nyomd meg a *Run workflow* gombot a Release workflow-n, vagy pushold a megfelelő taget (`git tag v0.5.0 && git push origin v0.5.0`).
+2. Nyomd meg a *Run workflow* gombot a Release workflow-n, vagy pushold a megfelelő taget (`git tag v1.0.0 && git push origin v1.0.0`).
 
 A workflow minden platformra megépíti az alkalmazást, lefuttatja a teszteket, és a fájlokat a kiadáshoz csatolja.
 

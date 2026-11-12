@@ -5,7 +5,7 @@ default-members = ["."]
 
 # the one version number for every platform (the release workflow reads it from here)
 [workspace.package]
-version = "0.8.0"
+version = "1.0.0"
 edition = "2024"
 
 # the GUI libraries, each version in one place: raise these three together when upgrading
