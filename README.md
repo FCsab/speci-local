@@ -178,6 +178,8 @@ db: 3
 
 Mivel a tesztesetek megjegyzések, az egész fájl továbbra is érvényes specifikáció. Változtatás nélkül beilleszthető az ELTE szerkesztőjébe.
 
+A feladatáról elnevezett fájl követi a feladatot: ha átnevezed a feladatot és mentesz, a fájl is az új nevet kapja (kivéve, ha már van ilyen nevű fájl).
+
 ### `.st`: struktogramok
 
 A `.st` fájl a webalkalmazás saját állapota JSON-ban (az általa tárolt `nodes` és `structograms`, valamint a színpaletták), így ugyanazok az adatok mozognak a kettő között. A színes szöveg a webalkalmazás által használt HTML-ként marad meg (`<span style="color: rgb(255, 0, 0);">…</span>`).

@@ -178,6 +178,8 @@ db: 3
 
 Because the test cases are comments, the whole file is still a valid specification. You can paste it into the ELTE editor as-is.
 
+A file named after its task follows the task: rename the task, save, and the file gets the new name (unless another file already has it).
+
 ### `.st`: structograms
 
 A `.st` file is the web app's own state as JSON (the `nodes` and `structograms` it keeps, plus the color palettes), so the same data moves between the two. Colored text is kept as the HTML the web app uses (`<span style="color: rgb(255, 0, 0);">…</span>`).

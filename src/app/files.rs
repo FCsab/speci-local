@@ -133,7 +133,18 @@ impl App {
 
     pub(super) fn save(&mut self, as_new: bool) {
         if let (Some(p), false) = (&self.path, as_new) {
-            return self.save_to(p.clone());
+            let old = p.clone();
+            let Some(new) = self.renamed(&old) else {
+                return self.save_to(old);
+            };
+            self.save_to(new.clone());
+            // saved under the new name: the file with the old name goes
+            if self.path.as_ref() == Some(&new)
+                && let Err(e) = std::fs::remove_file(&old)
+            {
+                self.status += &format!("; could not remove {}: {e}", old.display());
+            }
+            return;
         }
         let name = ui::file_stem(&self.doc.title, "specification");
         #[cfg(not(target_os = "android"))]
@@ -144,6 +155,19 @@ impl App {
         {
             self.files = Some(super::android_files::FileDialog::new(true, name, "sp"));
         }
+    }
+
+    /// The file's new path when the task was renamed since the last save and the file was
+    /// named after it. Another file's name is never taken.
+    fn renamed(&self, path: &Path) -> Option<PathBuf> {
+        let named = |title: &str| ui::file_stem(title, "specification");
+        let (was, now) = (named(&self.saved.title), named(&self.doc.title));
+        if was == now || path.file_stem()? != was.as_str() {
+            return None;
+        }
+        let ext = path.extension()?.to_string_lossy();
+        let new = path.with_file_name(format!("{now}.{ext}"));
+        (!new.exists()).then_some(new)
     }
 
     pub(super) fn save_to(&mut self, path: PathBuf) {

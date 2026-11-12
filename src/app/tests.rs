@@ -257,6 +257,43 @@ fn unsaved_changes_are_asked_about() {
     assert!(h.state().confirm.is_none());
 }
 
+/// Issue #11: a file named after its task follows the task's new name on the next save.
+#[test]
+fn renaming_a_saved_task_renames_its_file() {
+    let dir = TempDir::new("rename");
+    let mut h = harness([1360.0, 900.0]);
+    let file = |name: &str| dir.0.join(name);
+    h.state_mut().doc.title = "First".into();
+    h.state_mut().save_to(file("First"));
+    assert!(file("First.sp").exists());
+
+    h.state_mut().doc.title = "Second: a/b".into();
+    h.state_mut().save(false);
+    assert_eq!(
+        h.state().path,
+        Some(file("Second_ a_b.sp")),
+        "{}",
+        h.state().status
+    );
+    assert!(!file("First.sp").exists() && !h.state().dirty());
+    let text = std::fs::read_to_string(file("Second_ a_b.sp")).unwrap();
+    assert!(text.starts_with("// title: Second: a/b\n"), "{text}");
+
+    // another file's name is never taken: the file keeps its own
+    std::fs::write(file("Taken.sp"), "other").unwrap();
+    h.state_mut().doc.title = "Taken".into();
+    h.state_mut().save(false);
+    assert_eq!(h.state().path, Some(file("Second_ a_b.sp")));
+    assert_eq!(std::fs::read_to_string(file("Taken.sp")).unwrap(), "other");
+
+    // a file with a name of its own keeps it
+    h.state_mut().save_to(file("homework.sp"));
+    h.state_mut().doc.title = "Third".into();
+    h.state_mut().save(false);
+    assert_eq!(h.state().path, Some(file("homework.sp")));
+    assert!(!file("Third.sp").exists());
+}
+
 #[test]
 fn opens_and_saves_files() {
     let dir = TempDir::new("files");
