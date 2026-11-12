@@ -142,7 +142,21 @@ pub struct Stuki {
     /// Auto Stuki was pressed: the app builds the structograms from its specification.
     #[serde(skip)]
     pub wants_spec: bool,
+    /// The Auto Stuki button shows once the Konami code is typed, until the app closes.
+    #[serde(skip)]
+    auto_stuki: bool,
+    /// The last keys pressed, to spot the Konami code.
+    #[serde(skip)]
+    keys: Vec<egui::Key>,
 }
+
+/// ↑↑↓↓←→←→BA: shows (or hides again) the Auto Stuki button.
+const KONAMI: [egui::Key; 10] = {
+    use egui::Key::*;
+    [
+        ArrowUp, ArrowUp, ArrowDown, ArrowDown, ArrowLeft, ArrowRight, ArrowLeft, ArrowRight, B, A,
+    ]
+};
 
 impl Default for Stuki {
     fn default() -> Self {
@@ -173,6 +187,8 @@ impl Default for Stuki {
             file_request: None,
             after_save: None,
             wants_spec: false,
+            auto_stuki: false,
+            keys: vec![],
         }
     }
 }
@@ -266,7 +282,7 @@ impl Stuki {
             egui::Panel::top("stuki-help")
                 .resizable(false)
                 .frame(bar.fill(ui.visuals().faint_bg_color))
-                .show(ui, menu::help);
+                .show(ui, |ui| menu::help(ui, self.auto_stuki));
         }
         let look = Look::new(ui.visuals().dark_mode);
         egui::CentralPanel::default()
@@ -280,6 +296,30 @@ impl Stuki {
         }
         if ctx.text_edit_focused() {
             return; // the text field has its own undo
+        }
+        let pressed: Vec<egui::Key> = ctx.input(|i| {
+            i.events
+                .iter()
+                .filter_map(|e| match e {
+                    egui::Event::Key {
+                        key,
+                        pressed: true,
+                        repeat: false,
+                        ..
+                    } => Some(*key),
+                    _ => None,
+                })
+                .collect()
+        });
+        for k in pressed {
+            if self.keys.len() == KONAMI.len() {
+                self.keys.remove(0);
+            }
+            self.keys.push(k);
+            if self.keys == KONAMI {
+                self.auto_stuki = !self.auto_stuki;
+                self.keys.clear();
+            }
         }
         // Ctrl+C (arrives as a copy event) outside the texts: the picture
         if ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Copy))) {

@@ -1,51 +1,55 @@
 # speci-local
 
+**Magyar** | [English](README.en.md)
+
 [![CI](https://github.com/FCsab/speci-local/actions/workflows/ci.yml/badge.svg)](https://github.com/FCsab/speci-local/actions/workflows/ci.yml)
-[![Latest release](https://img.shields.io/github/v/release/FCsab/speci-local)](https://github.com/FCsab/speci-local/releases/latest)
+[![Legújabb kiadás](https://img.shields.io/github/v/release/FCsab/speci-local)](https://github.com/FCsab/speci-local/releases/latest)
 
-An offline version of the two ELTE programming-course tools, in one native app:
+Az ELTE két programozás-oktatási eszközének offline változata, egyetlen natív alkalmazásban:
 
-- the **Specification Editor** ([progalap.elte.hu/specifikacio](https://progalap.elte.hu/specifikacio/)): write a specification, add test cases, see each one turn green or red;
-- **Stuki**, the structogram editor ([progalap.elte.hu/stuki](https://progalap.elte.hu/stuki/)): draw structograms, generate them from a specification, and run them on the same test cases.
+- a **Specifikációszerkesztő** ([progalap.elte.hu/specifikacio](https://progalap.elte.hu/specifikacio/)): specifikáció írása, tesztesetek hozzáadása, és mindegyikről azonnal látszik, hogy zöld vagy piros;
+- a **Stuki** struktogramszerkesztő ([progalap.elte.hu/stuki](https://progalap.elte.hu/stuki/)): struktogramok rajzolása és futtatása ugyanazokon a teszteseteken.
 
-It needs no login and no network, so it keeps working when the university servers don't.
-It runs on Windows, Linux, macOS and Android from one Rust code base ([egui](https://github.com/emilk/egui)).
+Nem kell hozzá bejelentkezés és hálózat sem, így akkor is működik, amikor az egyetemi szerverek nem.
+Windowson, Linuxon, macOS-en és Androidon fut, egyetlen Rust kódbázisból ([egui](https://github.com/emilk/egui)).
 
-## Contents
+> **A projekt aktív fejlesztés alatt áll, naponta jelennek meg új verziók.**
 
-- [Install](#install)
-- [Quick start](#quick-start)
-- [Specifications](#specifications)
-- [Stuki (structograms)](#stuki-structograms)
-- [Files and sharing](#files-and-sharing)
-- [Keyboard shortcuts](#keyboard-shortcuts)
-- [Phones and Android](#phones-and-android)
-- [Build from source](#build-from-source)
-- [Development](#development)
-- [Releasing](#releasing)
-- [Not included](#not-included)
-- [Credits](#credits)
+## Tartalom
 
-## Install
+- [Telepítés](#telepítés)
+- [Gyors kezdés](#gyors-kezdés)
+- [Specifikációk](#specifikációk)
+- [Stuki (struktogramok)](#stuki-struktogramok)
+- [Fájlok és megosztás](#fájlok-és-megosztás)
+- [Billentyűparancsok](#billentyűparancsok)
+- [Telefonok és Android](#telefonok-és-android)
+- [Fordítás forráskódból](#fordítás-forráskódból)
+- [Fejlesztés](#fejlesztés)
+- [Kiadás](#kiadás)
+- [Ami nem került bele](#ami-nem-került-bele)
+- [Köszönet](#köszönet)
 
-Ready-made builds are attached to the [GitHub releases](https://github.com/FCsab/speci-local/releases).
+## Telepítés
 
-| System | File | How |
+A kész változatok a [GitHub-kiadásoknál](https://github.com/FCsab/speci-local/releases) tölthetők le.
+
+| Rendszer | Fájl | Teendő |
 | --- | --- | --- |
-| Windows | `.zip` | Unzip and run the single executable. |
-| Linux | `.tar.gz` | Unpack and run the single executable. |
-| macOS | `speci-local-macos-universal.zip` | Unzip and move `speci-local.app` to Applications (Apple Silicon and Intel). |
-| Android | `speci-local-android.apk` | Open it on the phone and allow installing from that source. |
+| Windows | `.zip` | Kicsomagolás, majd az egyetlen futtatható fájl elindítása. |
+| Linux | `.tar.gz` | Kicsomagolás, majd az egyetlen futtatható fájl elindítása. |
+| macOS | `speci-local-macos-universal.zip` | Kicsomagolás, majd a `speci-local.app` áthúzása az Alkalmazások mappába (Apple Silicon és Intel). |
+| Android | `speci-local-android.apk` | Megnyitás a telefonon, és a telepítés engedélyezése ebből a forrásból. |
 
-Notes:
+Megjegyzések:
 
-- **macOS**: the app isn't notarized by Apple, so the first start is blocked. Allow it in *System Settings → Privacy & Security → Open Anyway*, or run `xattr -dr com.apple.quarantine /Applications/speci-local.app`.
-- **Linux**: needs the usual windowing libraries (X11/Wayland, `libxkbcommon`), and the Open/Save dialogs need `xdg-desktop-portal` (standard on GNOME and KDE).
-  The first start installs a desktop entry (`~/.local/share/applications/speci-local.desktop`) and an icon (`~/.local/share/icons/hicolor/256x256/apps/speci-local.png`), so the app shows its icon and appears in the application menu. Delete those two files to remove it again.
+- **macOS**: az alkalmazást az Apple nem hitelesítette (notarization), ezért az első indítást letiltja. Engedélyezd a *Rendszerbeállítások → Adatvédelem és biztonság → Megnyitás mindenképp* pontban, vagy futtasd ezt: `xattr -dr com.apple.quarantine /Applications/speci-local.app`.
+- **Linux**: a szokásos ablakkezelő könyvtárak kellenek hozzá (X11/Wayland, `libxkbcommon`), a Megnyitás/Mentés ablakokhoz pedig az `xdg-desktop-portal` (GNOME-on és KDE-n alapból megvan).
+  Az első indítás telepít egy asztali bejegyzést (`~/.local/share/applications/speci-local.desktop`) és egy ikont (`~/.local/share/icons/hicolor/256x256/apps/speci-local.png`), így az alkalmazásnak lesz ikonja, és megjelenik az alkalmazásmenüben. Ha törlöd ezt a két fájlt, eltűnik onnan.
 
-## Quick start
+## Gyors kezdés
 
-1. Start the app. It opens with a sample specification that counts odd numbers:
+1. Indítsd el az alkalmazást. Egy mintaspecifikációval nyílik meg, amely a páratlan számokat számolja meg:
 
    ```text
    Be:
@@ -62,7 +66,7 @@ Notes:
    db=DARAB(i=1..n, szamok[i] mod 2 = 1)
    ```
 
-2. The test case next to it gives the inputs and the expected outputs as YAML:
+2. Mellette a teszteset YAML-ben adja meg a bemeneteket és a várt kimeneteket:
 
    ```yaml
    n: 5
@@ -70,117 +74,97 @@ Notes:
    db: 3
    ```
 
-3. Everything is evaluated as you type, in the background. The test tab turns green; change `db: 3` to `db: 2` and it turns red, with the value the specification gives.
-4. Switch to the **Stuki** tab and press **Auto Stuki**: the counting algorithm is drawn as a structogram.
-5. Press **Run tests**: the structogram is run on the same test case and gets its own green mark.
+3. Gépelés közben a háttérben minden kiértékelődik. A teszt füle zöld lesz; ha a `db: 3`-at `db: 2`-re írod át, piros lesz, és megjelenik az érték, amelyet a specifikáció ad.
+4. Válts a **Stuki** fülre, és rajzold meg a megszámolás algoritmusát struktogramként.
+5. Nyomd meg a **Run tests** gombot: a struktogram lefut ugyanazon a teszteseten, és saját zöld jelet kap.
 
-## Specifications
+## Specifikációk
 
-A specification is written in either block style, `Be:/Sa:/Ki:/Fv:/Ef:/Uf:` or `In:/Aux:/Out:/Fn:/Pre:/Post:`, with YAML test cases beside it.
-Untick **Auto** to evaluate only when you press **Evaluate** (Ctrl+Enter).
+A specifikáció kétféle blokkstílusban írható, `Be:/Sa:/Ki:/Fv:/Ef:/Uf:` vagy `In:/Aux:/Out:/Fn:/Pre:/Post:` alakban, mellette YAML-tesztesetekkel.
+Ha kiveszed a pipát az **Auto** elől, csak az **Evaluate** gomb (Ctrl+Enter) megnyomására értékel ki.
 
-### Same verdicts as the online editor
+### Ugyanazok az ítéletek, mint az online szerkesztőben
 
-speci-local accepts and rejects the same specifications as the online editor and judges every test case the same way. This was checked against the online editor's own evaluator on 816 cases.
+A speci-local ugyanazokat a specifikációkat fogadja el és utasítja el, mint az online szerkesztő, és minden tesztesetet ugyanúgy ítél meg. Ezt az online szerkesztő saját kiértékelőjével ellenőriztük 816 eseten.
 
-| | Supported |
+| | Támogatott |
 | --- | --- |
-| Types | elementary sets, intervals, arrays and matrices (with an initial value and any index range), records, type aliases, array literals with an index range (`[0..:1, 2]`) |
-| Functions | one per `Fn:`/`Fv:`/`Def:` header, signature first |
-| Logic | ∀/∃ and their word forms (`forall`/`minden`, `exists`/`létezik`, `in`/`eleme`), `true`/`igaz`, `false`/`hamis`, `->`, cases `{a, ha c; b egyébként}` |
-| Arithmetic | `\|`, `∤`, `<>`, `mod`/`%`, `div`, `n!`, `abs`, `sqrt`, `round`/`kerekít`, `length`/`hossz`, `from`/`tól`, `to`/`ig` |
-| Test data | YAML; an array or record may span several rows, and Enter in the test case editor indents like a JSON editor |
-| Patterns | `SUM`, `COUNT`, `MAX`, `MIN`, `EXISTS`, `FORALL`, `SELECT`, `SEARCH`, `COPY`, `MIS`, `CONDMAX`, `CONDMIN` and their other names (`SZUMMA`, `MEGSZÁMOL`, `ELDÖNT`, `MIND`, `KERES`, `KIVÁLASZT`, `MÁSOL`/`MAP`, `KIVÁLOGAT`/`FILTER`, `MAXHA`, `MINHA`, …) |
+| Típusok | elemi halmazok, intervallumok, tömbök és mátrixok (kezdőértékkel és tetszőleges indextartománnyal), rekordok, típusálnevek, indextartományos tömbliterálok (`[0..:1, 2]`) |
+| Függvények | `Fn:`/`Fv:`/`Def:` fejlécenként egy, elöl a szignatúrával |
+| Logika | ∀/∃ és szavas alakjaik (`forall`/`minden`, `exists`/`létezik`, `in`/`eleme`), `true`/`igaz`, `false`/`hamis`, `->`, esetszétválasztás `{a, ha c; b egyébként}` |
+| Aritmetika | `\|`, `∤`, `<>`, `mod`/`%`, `div`, `n!`, `abs`, `sqrt`, `round`/`kerekít`, `length`/`hossz`, `from`/`tól`, `to`/`ig` |
+| Tesztadatok | YAML; egy tömb vagy rekord több sorba is írható, és a tesztesetszerkesztőben az Enter úgy húz be, mint egy JSON-szerkesztő |
+| Tételek | `SUM`, `COUNT`, `MAX`, `MIN`, `EXISTS`, `FORALL`, `SELECT`, `SEARCH`, `COPY`, `MIS`, `CONDMAX`, `CONDMIN` és a többi nevük (`SZUMMA`, `MEGSZÁMOL`, `ELDÖNT`, `MIND`, `KERES`, `KIVÁLASZT`, `MÁSOL`/`MAP`, `KIVÁLOGAT`/`FILTER`, `MAXHA`, `MINHA`, …) |
 
-It also rejects what the online editor rejects: `→`, `∧`/`∨`, `ABS`, `element`, `SELECT(i≥…)`, several functions in one block, outputs in the precondition, declared variables missing from the postcondition, and test cases that leave out a value or repeat a constant.
+Azt is elutasítja, amit az online szerkesztő elutasít: `→`, `∧`/`∨`, `ABS`, `element`, `SELECT(i≥…)`, több függvény egy blokkban, kimenetek az előfeltételben, az utófeltételből hiányzó deklarált változók, és az olyan tesztesetek, amelyekből kimarad egy érték, vagy amelyek újra megadnak egy konstanst.
 
-### Finding out why a test fails
+### Miért bukik el egy teszt?
 
-- When a test case fails, the values the specification would give are computed and shown.
-- When evaluation finds an error, its line is tinted in the editor. Click the location on an error card to jump there.
-- The **Stepper** (pick it in the Evaluation pane) walks through the selected test case one reduction at a time:
-  - the formula is shown with the part being evaluated highlighted, along with its value and the current loop variables;
-  - `↓`/`↑` mark entering and leaving your `Fv:` functions, and inside a function its body becomes the formula shown;
-  - step with ← / → or the buttons and slider. *Step list* shows every step at once; click one to jump to it.
+- Ha egy teszteset elbukik, az alkalmazás kiszámolja és megmutatja, milyen értékeket adna a specifikáció.
+- Ha a kiértékelés hibát talál, annak sora színezve jelenik meg a szerkesztőben. A hibakártyán a helyre kattintva oda ugrik.
+- A **Stepper** (az Evaluation panelen választható) lépésenként végigvezet a kiválasztott teszteseten:
+  - a formula látszik, benne kiemelve az épp kiértékelt rész, mellette az értéke és az aktuális ciklusváltozók;
+  - `↓`/`↑` jelzi, ha belépsz egy saját `Fv:` függvénybe vagy kilépsz belőle, és a függvényen belül annak törzse lesz a mutatott formula;
+  - léptetni a ← / → billentyűkkel vagy a gombokkal és a csúszkával lehet. A *Step list* egyszerre mutat minden lépést; egyre kattintva oda ugrik.
 
-### The editor
+### A szerkesztő
 
-- Syntax highlighting, line numbers and context-aware completion: block headers at the start of a line, set names after `∈`, and the variables, types and functions you've declared.
-- Patterns and quantifiers insert as snippets, e.g. `SUM` becomes `SUM(i=1..n, |)`. Use ↑↓ to choose, Tab or Enter to insert, Esc to close.
-- Special characters: the symbol buttons, **Alt+1 … Alt+6** (**⌥1 … ⌥6** on macOS) for ∈ ∀ ∃ ≠ ≤ ≥, or type `forall`, `exists`, `leq` and let completion turn them into symbols.
-- Light, dark or system theme, and an adjustable font size.
+- Szintaxiskiemelés, sorszámok és környezetfüggő kiegészítés: blokkfejlécek a sor elején, halmaznevek az `∈` után, valamint a deklarált változók, típusok és függvények.
+- A tételek és a kvantorok sablonként szúródnak be, például a `SUM`-ból `SUM(i=1..n, |)` lesz. A ↑↓ választ, a Tab vagy az Enter beszúr, az Esc bezár.
+- Különleges karakterek: a szimbólumgombok, az **Alt+1 … Alt+6** (macOS-en **⌥1 … ⌥6**) az ∈ ∀ ∃ ≠ ≤ ≥ jelekhez, vagy írd be, hogy `forall`, `exists`, `leq`, és a kiegészítés szimbólummá alakítja.
+- Világos, sötét vagy a rendszert követő téma, és állítható betűméret.
 
-## Stuki (structograms)
+## Stuki (struktogramok)
 
-Switch between the two editors with the **Specification** / **Stuki** tabs in the toolbar. Each tab keeps its own file, and New, Open, Save, Copy and Paste (and their shortcuts) work on the tab you're in.
+A két szerkesztő között az eszköztár **Specification** / **Stuki** füleivel lehet váltani. Mindkét fülnek saját fájlja van, és az Új, Megnyitás, Mentés, Másolás és Beillesztés (és a billentyűparancsaik) mindig az aktuális fülre vonatkoznak.
 
-### Editing
+### Szerkesztés
 
-- **Elements**: drag a statement, decision, pre-test loop, post-test loop or multi-way decision onto a structogram.
-  - Drop it on the upper or lower half of an element to put it before or after that element, or onto an empty statement `-` to replace it.
-  - To put it after a loop or decision, drop it on that element's bottom edge (a line marks the spot), or just below the structogram if it's the last element.
-  - Click an element to select it; the ↑ / ↓ buttons insert above or below the selected element.
-- Texts are edited in place. Move an element by dragging its empty area or the handle in its corner. Delete it with the red ✕, the Delete key, or by dropping it outside the structograms.
-- Hovering a multi-way decision shows **+C** / **+D** (add a case / the default case).
-- Hovering a structogram shows **✕ F V R**: delete it, show the function header, the local declarations and the return value. The green **+** adds another structogram.
-- **Undo / redo** with the buttons or Ctrl+Z / Ctrl+Y.
-
-### Auto Stuki
-
-**Auto Stuki** builds the structograms from the specification on the Specification tab, replacing the current ones (you're asked first if they have unsaved changes).
-
-| In the specification | In the structogram |
-| --- | --- |
-| `x=…` in the postcondition | an assignment `x:=…` |
-| `y[1]=…` | an assignment `y[1]:=…` |
-| `∀i∈[1..n]:(y[i]=…)`, also with `c -> y[i]=…` inside | a counting loop (with a decision inside) |
-| a pattern (`SUM`, `COUNT`, `MAX`/`MIN`, `EXISTS`, `FORALL`, `SELECT`, `SEARCH`, `COPY`, `MIS`, `CONDMAX`/`CONDMIN`, under any of its names) or a quantifier | the standard algorithm taught at ELTE |
-| a pattern inside another one, or inside a condition (`y[i]=DARAB(j=1..m, …)`, `∃i∈[1..n]:(SZUMMA(…)>0)`) | its own steps, computed first into a helper variable |
-| `c -> x=…` | a decision; a matching `not c -> x=…`, or the other side of a comparison (`n>m` / `n≤m`), becomes its else branch |
-| several `c -> x=…` that set the same output and aren't each other's opposite (`n>0`, `n=0`, `n<0`) | one multi-way decision, a case each |
-| an `Fv:` function | a structogram of its own, with its header (`f(i:Egész):Logikai`) and return value |
-
-- Loop variables and other helper variables are listed as local declarations, and the steps come in the order the outputs depend on each other. A nested loop that reuses its outer loop's variable gets a variable of its own (`i2`).
-- Parts that only state a condition on the result (like `db≤n`) need no steps and are left out, like `k=k` that only mentions a variable. If the postcondition only describes an output without saying how to compute it (like `2*s=r`), the output gets no steps and the status line names it.
-- The main structogram starts with a `Be: …` (`In: …`) statement that shows the inputs, and ends with a `Ki: …` (`Out: …`) statement that shows the outputs.
-- The texts follow the specification's language: `Be/Ki/Ef/Uf` gives `és`, `nem`, `igaz`, `Egész`, …; `In/Out/Pre/Post` gives `and`, `not`, `true`, `Integer`, ….
+- **Elements**: utasítás, elágazás, elöltesztelős ciklus, hátultesztelős ciklus vagy többirányú elágazás húzható rá egy struktogramra.
+  - Egy elem felső vagy alsó felére ejtve elé vagy mögé kerül, egy üres `-` utasításra ejtve pedig a helyére.
+  - Ha egy ciklus vagy elágazás mögé szeretnéd tenni, ejtsd az elem alsó szélére (egy vonal jelzi a helyét), vagy közvetlenül a struktogram alá, ha az az utolsó elem.
+  - Egy elemre kattintva kijelölöd; a ↑ / ↓ gombok a kijelölt elem fölé vagy alá szúrnak be.
+- A szövegek helyben szerkeszthetők. Egy elemet az üres részénél vagy a sarkában lévő fogantyúnál fogva lehet mozgatni. Törölni a piros ✕-szel, a Delete billentyűvel, vagy a struktogramokon kívülre ejtve lehet.
+- Egy többirányú elágazás fölé víve az egeret megjelenik a **+C** / **+D** (új eset / az egyébként-ág).
+- Egy struktogram fölé víve az egeret megjelenik a **✕ F V R**: törlés, a függvényfej, a lokális deklarációk és a visszatérési érték megjelenítése. A zöld **+** új struktogramot ad hozzá.
+- **Visszavonás / újra** a gombokkal vagy a Ctrl+Z / Ctrl+Y billentyűkkel.
 
 ### Run tests
 
-**Run tests** runs the structograms on the test cases of the Specification tab and shows a green or red mark for each one. It runs again after every change, to the structograms, the specification or the test cases.
+A **Run tests** lefuttatja a struktogramokat a Specification fül tesztesetein, és mindegyikhez zöld vagy piros jelet mutat. Minden változás után újra lefut: a struktogramok, a specifikáció vagy a tesztesetek változása után is.
 
-A test case passes when the outputs the structogram computes from the test's inputs satisfy the postcondition. Hover a mark for the message and the computed outputs. Click a red mark to select the element where the run stopped.
+Egy teszteset akkor sikeres, ha a struktogram által a teszt bemeneteiből kiszámolt kimenetek teljesítik az utófeltételt. Egy jel fölé víve az egeret látszik az üzenet és a kiszámolt kimenetek. Egy piros jelre kattintva kijelölődik az elem, ahol a futás megállt.
 
-The texts of the elements are read in the language of the specifications:
+Az elemek szövegét a specifikációk nyelvén olvassa:
 
-| Text | Meaning |
+| Szöveg | Jelentés |
 | --- | --- |
-| `x:=…`, `t[i]:=…`, `r.field:=…`, `(a, b):=…` in a statement | an assignment |
-| `i=1..n` at the top of a pre-test loop | a counting loop |
-| anything else in a decision, loop or case | a condition (`i≤n és nem van`) |
-| `-` or an empty statement | nothing |
-| a structogram named like `f(i:Egész):Logikai` | a function: call it as `f(…)`, it gives back its return value |
+| `x:=…`, `t[i]:=…`, `r.mező:=…`, `(a, b):=…` egy utasításban | értékadás |
+| `i=1..n` egy elöltesztelős ciklus tetején | számlálós ciklus |
+| bármi más egy elágazásban, ciklusban vagy esetben | feltétel (`i≤n és nem van`) |
+| `-` vagy üres utasítás | semmi |
+| `f(i:Egész):Logikai` alakú nevű struktogram | függvény: `f(…)` alakban hívható, és a visszatérési értékét adja |
 
-The first structogram that isn't a function is the program. Functions of the specification that have no structogram are evaluated from their definition.
-A run is stopped with a message when a text can't be read as a step, a variable is used before it has a value, an index is out of range, no case of a multi-way decision holds, or the program is still running after 2 million steps.
+Az első olyan struktogram, amely nem függvény, a program. A specifikáció azon függvényei, amelyekhez nincs struktogram, a definíciójuk alapján értékelődnek ki.
+A futás üzenettel megáll, ha egy szöveg nem olvasható lépésként, egy változót azelőtt használnak, hogy értéke lenne, egy index kívül esik a tartományon, egy többirányú elágazás egyik esete sem teljesül, vagy a program 2 millió lépés után is fut még.
 
-### Pictures and colors
+### Képek és színek
 
-- **Copying gives a picture**, ready to paste into a task, document or chat: the toolbar's copy button, **Copy image** or Ctrl+C (outside a text field) copy the selected structogram (the first one if none is selected) as a PNG. To copy a particular structogram, use the picture button in the bar above it or right-click it. **Export PNG** saves the picture as a file.
-- Pictures are always light (white background, black lines), even in dark mode. Turn off *Light pictures* in the settings to get what's on screen instead.
-- **Colors**: text color and text background for the selected part of a text (or all of it), element background and structogram background, from editable palettes saved with the project. **Colorize** colors the elements by kind.
-- The sliders button holds the font and the web app's advanced settings: horizontal / vertical distances (linked or not), snapping, block height, spacing, border width and right padding. Zoom with the slider, Ctrl+wheel or a pinch.
+- **Másoláskor kép keletkezik**, amely beilleszthető egy feladatba, dokumentumba vagy csetbe: az eszköztár másolás gombja, a **Copy image** vagy a Ctrl+C (szövegmezőn kívül) PNG-képként másolja a kijelölt struktogramot (ha nincs kijelölés, az elsőt). Egy adott struktogram másolásához használd a fölötte lévő sáv kép gombját, vagy kattints rá jobb gombbal. Az **Export PNG** fájlba menti a képet.
+- A képek mindig világosak (fehér háttér, fekete vonalak), sötét módban is. Ha a beállításokban kikapcsolod a *Light pictures* opciót, azt kapod, ami a képernyőn látszik.
+- **Színek**: szövegszín és szöveghátter a szöveg kijelölt részére (vagy az egészére), elemháttér és struktogramháttér, a projekttel együtt mentett, szerkeszthető palettákról. A **Colorize** fajtájuk szerint színezi az elemeket.
+- A csúszkák gomb alatt van a betűtípus és a webalkalmazás haladó beállításai: vízszintes / függőleges távolságok (összekapcsolva vagy külön), illesztés, blokkmagasság, térköz, keretvastagság és jobb oldali margó. Nagyítani a csúszkával, Ctrl+görgővel vagy csippentéssel lehet.
 
-## Files and sharing
+## Fájlok és megosztás
 
-Open a file with Ctrl+O, by dragging it onto the window, or from the command line (`speci-local file.sp`). Your session is also autosaved when you quit.
+Fájlt a Ctrl+O-val, az ablakra húzva, vagy a parancssorból (`speci-local fajl.sp`) lehet megnyitni. Kilépéskor a munkamenet automatikusan mentődik.
 
-### `.sp`: a specification with its test cases
+### `.sp`: specifikáció a teszteseteivel
 
-A `.sp` file is plain text: the specification, with each test case stored as a comment.
+A `.sp` fájl egyszerű szöveg: a specifikáció, amelyben minden teszteset megjegyzésként szerepel.
 
 ```text
-// title: Odd numbers
+// title: Páratlan számok
 Be:
 n∈N,
 szamok∈N[1..n]
@@ -192,134 +176,133 @@ db: 3
 ---*/
 ```
 
-Because the test cases are comments, the whole file is still a valid specification. You can paste it into the ELTE editor as-is.
+Mivel a tesztesetek megjegyzések, az egész fájl továbbra is érvényes specifikáció. Változtatás nélkül beilleszthető az ELTE szerkesztőjébe.
 
-### `.st`: structograms
+### `.st`: struktogramok
 
-A `.st` file is the web app's own state as JSON (the `nodes` and `structograms` it keeps, plus the color palettes), so the same data moves between the two. Colored text is kept as the HTML the web app uses (`<span style="color: rgb(255, 0, 0);">…</span>`).
+A `.st` fájl a webalkalmazás saját állapota JSON-ban (az általa tárolt `nodes` és `structograms`, valamint a színpaletták), így ugyanazok az adatok mozognak a kettő között. A színes szöveg a webalkalmazás által használt HTML-ként marad meg (`<span style="color: rgb(255, 0, 0);">…</span>`).
 
-### One line for a whole project
+### Egy sor az egész projektre
 
-- On the Specification tab, the copy button (Ctrl+Shift+C) puts the specification and all test cases on the clipboard as one compressed line, `SPECI1:…`. It's handy for sending through chat.
-- On the Stuki tab, **Copy as text**, Ctrl+Shift+C or Shift-clicking the copy button copies one `STUKI1:…` line.
-- Paste (Ctrl+Shift+V) reads either line and opens it on the right tab. It also accepts plain specification text, a `.st` file's text, and the web app's share links (`…/stuki/v1/?data=…`).
-- If the system clipboard can't be read, a box opens where you can paste with Ctrl+V instead.
+- A Specification fülön a másolás gomb (Ctrl+Shift+C) a specifikációt és az összes tesztesetet egyetlen tömörített sorként, `SPECI1:…` alakban teszi a vágólapra. Csetben könnyű elküldeni.
+- A Stuki fülön a **Copy as text**, a Ctrl+Shift+C vagy a Shift+kattintás a másolás gombra egy `STUKI1:…` sort másol.
+- A beillesztés (Ctrl+Shift+V) mindkét sort beolvassa, és a megfelelő fülön nyitja meg. Elfogad sima specifikációszöveget, `.st` fájl szövegét és a webalkalmazás megosztási linkjeit is (`…/stuki/v1/?data=…`).
+- Ha a rendszer vágólapja nem olvasható, megnyílik egy mező, ahová Ctrl+V-vel be lehet illeszteni.
 
-## Keyboard shortcuts
+## Billentyűparancsok
 
-On macOS, use ⌘ instead of Ctrl and ⌥ instead of Alt.
+macOS-en a Ctrl helyett ⌘, az Alt helyett ⌥ használandó.
 
-| Shortcut | Action |
+| Billentyű | Művelet |
 | --- | --- |
-| Ctrl+N / Ctrl+O | New / open, on the current tab |
-| Ctrl+S / Ctrl+Shift+S | Save / save as |
-| Ctrl+Shift+C / Ctrl+Shift+V | Copy / paste the whole project as one line |
-| Ctrl+Enter | Evaluate the specification |
-| Alt+1 … Alt+6 | Insert ∈ ∀ ∃ ≠ ≤ ≥ |
-| ← / → | Stepper: previous / next step |
-| Ctrl+Z / Ctrl+Y | Stuki: undo / redo |
-| Ctrl+C | Stuki, outside a text field: copy the structogram as a picture |
-| Delete | Stuki: remove the selected element |
-| Ctrl+wheel | Stuki: zoom |
+| Ctrl+N / Ctrl+O | Új / megnyitás, az aktuális fülön |
+| Ctrl+S / Ctrl+Shift+S | Mentés / mentés másként |
+| Ctrl+Shift+C / Ctrl+Shift+V | Az egész projekt másolása / beillesztése egy sorként |
+| Ctrl+Enter | A specifikáció kiértékelése |
+| Alt+1 … Alt+6 | ∈ ∀ ∃ ≠ ≤ ≥ beszúrása |
+| ← / → | Stepper: előző / következő lépés |
+| Ctrl+Z / Ctrl+Y | Stuki: visszavonás / újra |
+| Ctrl+C | Stuki, szövegmezőn kívül: a struktogram másolása képként |
+| Delete | Stuki: a kijelölt elem törlése |
+| Ctrl+görgő | Stuki: nagyítás |
 
-## Phones and Android
+## Telefonok és Android
 
-On a narrow screen (a phone, or a narrow window on the desktop), one pane is shown at a time, and the **Spec / Tests / Results** tabs switch between them. The settings menu holds *Save as…* and the theme.
+Keskeny képernyőn (telefonon, vagy keskeny ablakban asztali gépen) egyszerre egy panel látszik, és a **Spec / Tests / Results** fülek váltanak közöttük. A beállítások menüben van a *Save as…* és a téma.
 
-- Android has no file dialogs. **Open** and **Save** show a list of the files in the app's folder (`Android/data/io.github.fcsab.specilocal/files/specifications`, which a computer sees over USB).
-- To move a project between devices, use the copy / paste project buttons. They work with the Android clipboard, so the `SPECI1:…` line can be sent through any chat app.
-- The on-screen keyboard types plain letters, digits and punctuation. Use the symbol buttons for ∈ ∀ ∃ ≠ ≤ ≥, or type `forall`, `exists`, `leq`. The paste button next to the symbol buttons pastes the clipboard at the cursor.
-- Copying a structogram saves the picture into the app's folder, because Android's clipboard can't hold pictures from apps like this one.
+- Androidon nincsenek fájlválasztó ablakok. Az **Open** és a **Save** az alkalmazás mappájában lévő fájlok listáját mutatja (`Android/data/io.github.fcsab.specilocal/files/specifications`, amelyet a számítógép USB-n keresztül lát).
+- Projektet eszközök között a projekt másolása / beillesztése gombokkal lehet átvinni. Ezek az Android vágólapjával működnek, így a `SPECI1:…` sor bármilyen csetalkalmazáson elküldhető.
+- A képernyő-billentyűzet sima betűket, számjegyeket és írásjeleket ír. Az ∈ ∀ ∃ ≠ ≤ ≥ jelekhez használd a szimbólumgombokat, vagy írd be, hogy `forall`, `exists`, `leq`. A szimbólumgombok melletti beillesztés gomb a kurzorhoz illeszti a vágólap tartalmát.
+- Egy struktogram másolása a képet az alkalmazás mappájába menti, mert az Android vágólapja nem tud képet tárolni az ilyen alkalmazásokból.
 
-## Build from source
+## Fordítás forráskódból
 
-You need a [Rust toolchain](https://rustup.rs) (edition 2024).
+Egy [Rust eszközlánc](https://rustup.rs) kell hozzá (2024-es kiadás).
 
 ```sh
 cargo run --release
 ```
 
-On Debian or Ubuntu, install the build dependencies first:
+Debianon vagy Ubuntun előbb telepítsd a fordításhoz szükséges csomagokat:
 
 ```sh
 sudo apt-get install libxkbcommon-dev libgtk-3-dev
 ```
 
-On macOS, `scripts/bundle-macos.sh` builds `speci-local.app` (a universal binary for Apple Silicon and Intel) and zips it.
+macOS-en a `scripts/bundle-macos.sh` elkészíti a `speci-local.app`-ot (univerzális bináris Apple Siliconra és Intelre), és becsomagolja.
 
 ### Nix
 
 ```sh
-nix run github:FCsab/speci-local            # run without installing
+nix run github:FCsab/speci-local            # futtatás telepítés nélkül
 nix profile install github:FCsab/speci-local
-nix develop                                 # shell with cargo, clippy, rustfmt, rust-analyzer
+nix develop                                 # shell cargo, clippy, rustfmt, rust-analyzer eszközökkel
 ```
 
-Or add `inputs.speci-local.url = "github:FCsab/speci-local";` to a NixOS / Home Manager flake and use `speci-local.packages.${system}.default`.
-The flake reads the version from `Cargo.toml` and the crate hashes from `Cargo.lock`, so it needs no edits when either changes; `flake.lock` (nixpkgs) is bumped by a weekly pull request.
+Vagy add hozzá az `inputs.speci-local.url = "github:FCsab/speci-local";` sort egy NixOS / Home Manager flake-hez, és használd a `speci-local.packages.${system}.default` csomagot.
+A flake a verziót a `Cargo.toml`-ból, a crate-ek hash-eit a `Cargo.lock`-ból olvassa, így egyik változásakor sem kell módosítani; a `flake.lock`-ot (nixpkgs) egy heti pull request frissíti.
 
 ### Android
 
-The Android app is the `android/` crate, a thin wrapper around the same library, built with [cargo-apk](https://github.com/rust-mobile/cargo-apk):
+Az androidos alkalmazás az `android/` crate, egy vékony burok ugyanazon könyvtár körül, amely a [cargo-apk](https://github.com/rust-mobile/cargo-apk) eszközzel készül:
 
 ```sh
 rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
 cargo install cargo-apk
-export ANDROID_HOME=~/Android/Sdk ANDROID_NDK_ROOT=~/Android/Sdk/ndk/<version>
-cargo apk run -p speci-local-android      # debug build, installed on the connected phone
+export ANDROID_HOME=~/Android/Sdk ANDROID_NDK_ROOT=~/Android/Sdk/ndk/<verzió>
+cargo apk run -p speci-local-android      # debug változat, a csatlakoztatott telefonra telepítve
 ```
 
-Add `--target x86_64-linux-android` to build only for the emulator. The app logs to logcat (`adb logcat -s speci-local`).
-`cargo apk build -p speci-local-android --release` needs a signing key: set `CARGO_APK_RELEASE_KEYSTORE` (a `.jks` file) and `CARGO_APK_RELEASE_KEYSTORE_PASSWORD`.
+A `--target x86_64-linux-android` kapcsolóval csak az emulátorra készül. Az alkalmazás a logcatbe naplóz (`adb logcat -s speci-local`).
+A `cargo apk build -p speci-local-android --release` aláírókulcsot igényel: állítsd be a `CARGO_APK_RELEASE_KEYSTORE` (egy `.jks` fájl) és a `CARGO_APK_RELEASE_KEYSTORE_PASSWORD` változót.
 
-## Development
+## Fejlesztés
 
 ```sh
-cargo test                                   # unit, UI and integration tests
+cargo test                                   # egység-, felület- és integrációs tesztek
 cargo fmt --all --check
 cargo clippy --all-targets -- -D warnings
 ```
 
-CI runs all three on every push, builds the desktop app on Windows, Linux and macOS, and builds a debug APK.
+A CI minden pushnál lefuttatja mindhármat, megépíti az asztali alkalmazást Windowsra, Linuxra és macOS-re, és készít egy debug APK-t.
 
-| Path | What it holds |
+| Útvonal | Tartalma |
 | --- | --- |
-| `src/parser/` | lexer, block splitter, grammar and static checks of specifications |
-| `src/eval/` | the evaluator: values, operators, patterns, function calls, stepper trace |
-| `src/data.rs`, `src/runner.rs` | reading YAML test cases, running them and explaining the verdict |
-| `src/file.rs`, `src/compact.rs` | `.sp` files and the `SPECI1:` line |
-| `src/editor/` | the code editor: highlighting, completion and Vim keys (`vim/`) |
-| `src/app/` | the window: toolbar, panes, results, stepper, dialogs, background evaluation |
-| `src/stuki/` | the structogram editor: model, layout, canvas, colors, PNG and `.st` files |
-| `src/stuki/from_spec/` | Auto Stuki: helpers, the patterns' algorithms, the postcondition |
-| `src/stuki/run/` | running structograms on test cases: compiler and machine |
-| `src/platform.rs` | what differs between the desktop systems and Android |
-| `android/` | the Android wrapper crate |
-| `tests/` | case studies, edge cases, limits, and a fuzzer that damages valid documents |
+| `src/parser/` | a specifikációk lexere, blokkokra bontója, nyelvtana és statikus ellenőrzései |
+| `src/eval/` | a kiértékelő: értékek, műveletek, tételek, függvényhívások, a Stepper nyomkövetése |
+| `src/data.rs`, `src/runner.rs` | a YAML-tesztesetek beolvasása, futtatása és az ítélet magyarázata |
+| `src/file.rs`, `src/compact.rs` | `.sp` fájlok és a `SPECI1:` sor |
+| `src/editor/` | a kódszerkesztő: kiemelés, kiegészítés és Vim-billentyűk (`vim/`) |
+| `src/app/` | az ablak: eszköztár, panelek, eredmények, Stepper, párbeszédablakok, háttérben futó kiértékelés |
+| `src/stuki/` | a struktogramszerkesztő: modell, elrendezés, vászon, színek, PNG és `.st` fájlok |
+| `src/stuki/run/` | struktogramok futtatása teszteseteken: fordító és gép |
+| `src/platform.rs` | ami az asztali rendszerek és az Android között eltér |
+| `android/` | az androidos burok crate |
+| `tests/` | esettanulmányok, határesetek, korlátok, és egy fuzzer, amely érvényes dokumentumokat ront el |
 
-How the pieces are tested against each other:
+Hogyan ellenőrzik egymást a részek:
 
-- `tests/cases.rs` holds case studies from the ELTE manual. Every specification that Auto Stuki can turn into steps completely is also run as a structogram, and its outputs must satisfy the postcondition.
-- `tests/fuzz.rs` damages valid documents in thousands of small ways. The parser, the evaluator, Auto Stuki and the structogram runner must answer each with a verdict or a message, never a panic.
-- The UI tests (`src/app/tests.rs`) drive the real window with [egui_kittest](https://crates.io/crates/egui_kittest).
+- A `tests/cases.rs` az ELTE kézikönyvének esettanulmányait tartalmazza.
+- A `tests/fuzz.rs` érvényes dokumentumokat ront el több ezer apró módon. A parsernek, a kiértékelőnek és a struktogramfuttatónak mindegyikre ítélettel vagy üzenettel kell válaszolnia, soha nem pánikkal.
+- A felülettesztek (`src/app/tests.rs`) a valódi ablakot vezérlik az [egui_kittest](https://crates.io/crates/egui_kittest) segítségével.
 
-`SKILL.md` is a manual of the specification language as the online editor defines it, usable as a skill for AI assistants.
+A `SKILL.md` a specifikációs nyelv kézikönyve úgy, ahogy az online szerkesztő meghatározza; AI-asszisztensek skilljeként is használható.
 
-## Releasing
+## Kiadás
 
-1. Raise `version` in `Cargo.toml`. CI alone never publishes anything.
-2. Press *Run workflow* on the Release workflow, or push a matching tag (`git tag v0.5.0 && git push origin v0.5.0`).
+1. Emeld meg a `version` értékét a `Cargo.toml`-ban. A CI magától soha nem ad ki semmit.
+2. Nyomd meg a *Run workflow* gombot a Release workflow-n, vagy pushold a megfelelő taget (`git tag v0.5.0 && git push origin v0.5.0`).
 
-The workflow builds every platform, runs the tests, and attaches the files to the release.
+A workflow minden platformra megépíti az alkalmazást, lefuttatja a teszteket, és a fájlokat a kiadáshoz csatolja.
 
-For APKs that update in place, add the repository secrets `ANDROID_KEYSTORE` (the base64 of a `.jks` file) and `ANDROID_KEYSTORE_PASSWORD`. Without them, each release is signed with a new throwaway key, so the old version must be uninstalled before installing a new one.
+Helyben frissülő APK-khoz add hozzá az `ANDROID_KEYSTORE` (egy `.jks` fájl base64 alakja) és az `ANDROID_KEYSTORE_PASSWORD` titkot a repóhoz. Ezek nélkül minden kiadást egy új, eldobható kulcs ír alá, így új verzió telepítése előtt a régit el kell távolítani.
 
-## Not included
+## Ami nem került bele
 
-- From the Specification Editor: the history pane, and sharing by permalink.
-- From Stuki: the INF login, saving to the university server, and fonts other than the bundled one (monospace or proportional).
+- A Specifikációszerkesztőből: az előzmények panel és a megosztás állandó linkkel.
+- A Stukiból: az INF-bejelentkezés, a mentés az egyetemi szerverre, és a beépítetten kívüli betűtípusok (fix vagy arányos szélességű).
 
-## Credits
+## Köszönet
 
-- The original web applications, the Specification Editor and Stuki, are made at the Faculty of Informatics of Eötvös Loránd University (ELTE IK). speci-local is an independent offline reimplementation and is not affiliated with the university.
-- The UI uses 0xProto Nerd Font, with Noto Sans Math as the fallback for ∈ ∀ ∃. Both are embedded, and their licenses are in `assets/`.
+- Az eredeti webalkalmazások, a Specifikációszerkesztő és a Stuki, az Eötvös Loránd Tudományegyetem Informatikai Karán (ELTE IK) készültek. A speci-local független offline újraírás, és nem áll kapcsolatban az egyetemmel.
+- A felület a 0xProto Nerd Font betűtípust használja, az ∈ ∀ ∃ jelekhez a Noto Sans Math tartalék betűtípussal. Mindkettő be van ágyazva, licenceik az `assets/` mappában vannak.

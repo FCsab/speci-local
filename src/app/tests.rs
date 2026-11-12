@@ -362,8 +362,21 @@ fn deleting_a_test_keeps_results_aligned() {
     }
 }
 
-/// Auto Stuki: the button on the Stuki tab builds the structograms from the specification
-/// (the sample counts odd numbers), and a broken specification leaves them alone.
+/// The Konami code (↑↑↓↓←→←→BA) shows the hidden Auto Stuki button, or hides it again.
+fn konami(h: &mut Harness<'static, App>) {
+    use egui::Key::*;
+    for k in [
+        ArrowUp, ArrowUp, ArrowDown, ArrowDown, ArrowLeft, ArrowRight, ArrowLeft, ArrowRight, B, A,
+    ] {
+        h.key_press(k);
+        h.run_steps(1);
+    }
+    h.run_steps(2);
+}
+
+/// Auto Stuki: the button on the Stuki tab (hidden until the Konami code) builds the
+/// structograms from the specification (the sample counts odd numbers), and a broken
+/// specification leaves them alone.
 #[test]
 fn auto_stuki_builds_structograms_from_the_spec() {
     use crate::stuki::model::Kind;
@@ -378,7 +391,12 @@ fn auto_stuki_builds_structograms_from_the_spec() {
             a
         });
     h.run_steps(4);
-    h.get_by_label(&format!("{I_WAND}  Auto Stuki")).click();
+    let button = format!("{I_WAND}  Auto Stuki");
+    assert_eq!(h.query_all_by_label(&button).count(), 0, "hidden at first");
+    // ↑↑↓↓ alone is not the code; an extra ↑ in front doesn't spoil it
+    h.key_press(egui::Key::ArrowUp);
+    konami(&mut h);
+    h.get_by_label(&button).click();
     h.run_steps(4);
     let st = &h.state().stuki;
     assert_eq!(st.program.diagrams.len(), 1, "{}", st.status);
@@ -397,6 +415,10 @@ fn auto_stuki_builds_structograms_from_the_spec() {
     h.run_steps(4);
     assert!(h.state().stuki.status.starts_with("Fix the specification"));
     assert_eq!(h.state().stuki.program.diagrams[0].body.len(), 4);
+
+    // the code again hides it
+    konami(&mut h);
+    assert_eq!(h.query_all_by_label(&button).count(), 0);
 }
 
 #[test]
@@ -414,6 +436,7 @@ fn stuki_runs_the_test_cases() {
             a
         });
     h.run_steps(4);
+    konami(&mut h);
     h.get_by_label(&format!("{I_WAND}  Auto Stuki")).click();
     h.run_steps(4);
     h.get_by_label(&format!("{I_RUN}  Run tests")).click();

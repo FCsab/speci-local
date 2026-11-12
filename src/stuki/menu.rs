@@ -38,15 +38,17 @@ impl Stuki {
                 self.redo();
             }
             ui.separator();
-            if ui
-                .button(label(I_WAND, "Auto Stuki"))
-                .on_hover_text(
-                    "Build the structograms from the specification on the Specification tab:\n\
-                     the patterns (SUM, COUNT, MAX, SEARCH, …) and quantifiers become their \
-                     standard algorithms, x=… an assignment, and every function gets a \
-                     structogram of its own.\nReplaces the current structograms.",
-                )
-                .clicked()
+            // hidden until the Konami code (see `KONAMI`)
+            if self.auto_stuki
+                && ui
+                    .button(label(I_WAND, "Auto Stuki"))
+                    .on_hover_text(
+                        "Build the structograms from the specification on the Specification \
+                         tab:\nthe patterns (SUM, COUNT, MAX, SEARCH, …) and quantifiers become \
+                         their standard algorithms, x=… an assignment, and every function gets \
+                         a structogram of its own.\nReplaces the current structograms.",
+                    )
+                    .clicked()
             {
                 self.wants_spec = true;
             }
@@ -314,7 +316,7 @@ fn preview(tag: Tag) -> Diagram {
     }
 }
 
-pub(super) fn help(ui: &mut egui::Ui) {
+pub(super) fn help(ui: &mut egui::Ui, auto_stuki: bool) {
     ui.label(RichText::new("How to use").strong());
     for p in [
         "Drag elements from the Elements menu and drop them onto a structogram: above or below an element, or onto an empty statement “-” to replace it. To put it after a loop or decision, drop it on that element's bottom edge, or just below the structogram. A blue line shows where it will go. The ↑ and ↓ buttons insert the element above or below the selected element instead (click an element to select it).",
@@ -325,7 +327,10 @@ pub(super) fn help(ui: &mut egui::Ui) {
         "Colors: the text colors apply to the selected part of the text you clicked into last (or all of it), the element background to the selected element, the structogram background to its structogram. Edit changes a palette, which is saved with the project.",
         "Copy image (Ctrl+C) and Export PNG work on the structogram of the selected element; right-click a structogram, or use the picture button above it, to copy that one. Pictures are light (white background) unless you turn that off in the settings. Copy as text (Ctrl+Shift+C) copies the whole project as a STUKI1: line instead. Pinch or Ctrl+wheel zooms; two fingers move the editor on touch screens. Ctrl+Z / Ctrl+Y undo and redo, Delete removes the selected element.",
         "Save writes a .st file (the web app's own format). Copy puts the whole project on the clipboard as one STUKI1: line; Paste reads that, a .st file's text, or a Stuki share link (…/stuki/v1/?data=…).",
-    ] {
+    ]
+    .into_iter()
+    .filter(|p| auto_stuki || !p.starts_with("Auto Stuki"))
+    {
         ui.label(p);
     }
 }
