@@ -266,6 +266,18 @@ fn sections(job: &LayoutJob, keep: impl Fn(&TextFormat) -> bool) -> Vec<&str> {
 }
 
 #[test]
+fn hungarian_macro_names_are_highlighted_like_english_ones() {
+    let p = palette(false);
+    let f = FontId::monospace(14.0);
+    let src = "s=SUM(i=1..n, x[i]) és d=SZUMMA(i=1..n, x[i]) és c=MEGSZÁMOL(i=1..n, x[i]>0)";
+    let job = highlight_spec(src, f, &p, &[]);
+    assert_eq!(
+        sections(&job, |f| f.color == p.macro_),
+        ["SUM", "SZUMMA", "MEGSZÁMOL"]
+    );
+}
+
+#[test]
 fn text_literals_are_highlighted_like_the_parser_reads_them() {
     let p = palette(false);
     let f = FontId::monospace(14.0);

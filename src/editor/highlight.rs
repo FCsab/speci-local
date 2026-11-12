@@ -1,6 +1,6 @@
 //! Syntax highlighting for specifications and (YAML) test data.
 
-use crate::parser::{MACROS, closing_quotes};
+use crate::parser::{MACROS, closing_quotes, macro_alias};
 use eframe::egui::{Color32, FontId, TextFormat, text::LayoutJob};
 
 pub struct Palette {
@@ -153,7 +153,7 @@ pub fn highlight_spec(text: &str, font: FontId, p: &Palette, errors: &[usize]) -
             let after = &rest[n..];
             if line_start && HEADERS.contains(&w) && after.starts_with(':') {
                 (n + 1, p.header)
-            } else if MACROS.iter().any(|m| m.0 == w) {
+            } else if macro_alias(w).is_some() || MACROS.iter().any(|m| m.0 == w) {
                 (n, p.macro_)
             } else if KEYWORDS.contains(&w) {
                 (n, p.keyword)
