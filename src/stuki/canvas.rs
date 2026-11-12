@@ -147,6 +147,7 @@ impl Stuki {
             && self.drag.is_none()
             && let Some(o) = ui.input(|i| i.pointer.press_origin())
             && let Some(h) = out.hit_at(o)
+            && !h.noop
         {
             self.drag = Some(Drag::Node(h.id));
         }
