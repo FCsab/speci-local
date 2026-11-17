@@ -278,7 +278,7 @@ impl Stuki {
             egui::Panel::top("stuki-help")
                 .resizable(false)
                 .frame(bar.fill(ui.visuals().faint_bg_color))
-                .show(ui, |ui| menu::help(ui));
+                .show(ui, menu::help);
         }
         let look = Look::new(ui.visuals().dark_mode);
         egui::CentralPanel::default()
