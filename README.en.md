@@ -92,6 +92,13 @@ If you still don't feel safe running a downloaded program, build it yourself fro
 
 ## What's new in v1.0
 
+In v1.0.1:
+
+- **Open in web editor** and **Copy web editor link** in the settings menu open the current specification or structograms in the ELTE web editor; Paste also reads the specification editor's `?data=` links.
+- A function whose body is a pattern with several results (like `f:N->N, f(i)=FELTMAX(…)`) is now an error, as it is in the web editor; take one part with `.3`, or list every part in the codomain.
+- Stuki: the move and delete buttons are block-height squares, the "+" tile is a circle, and empty statements (`-`) can no longer be dragged out of loops and branches.
+- The first start offers to add the app to the application menu (Linux) or the Start menu (Windows).
+
 Key improvements and changes since v0.8.0:
 
 - **Bilingual documentation**: Full documentation is now available in Hungarian (`README.md`) and English (`README.en.md`).

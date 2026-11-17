@@ -92,6 +92,13 @@ Ha így sem érzed biztonságosnak egy letöltött program futtatását, fordít
 
 ## Újdonságok (v1.0)
 
+A v1.0.1-ben:
+
+- A beállítások menü **Open in web editor** és **Copy web editor link** pontja megnyitja az aktuális specifikációt vagy struktogramokat az ELTE webes szerkesztőjében; a beillesztés a specifikációszerkesztő `?data=` linkjeit is beolvassa.
+- Hiba, ha egy függvény törzse több eredményt adó tétel (például `f:N->N, f(i)=FELTMAX(…)`), ahogy a webes szerkesztőben is; vegyél ki belőle egy részt `.3`-mal, vagy sorold fel az összes részt az értékkészletben.
+- Stuki: a mozgatás és a törlés gombja blokkmagasságú négyzet, a „+” csempe kör, az üres utasítás (`-`) pedig már nem húzható ki a ciklusokból és az elágazásokból.
+- Az első indításkor az alkalmazás felajánlja, hogy felveszi magát az alkalmazásmenübe (Linux) vagy a Start menübe (Windows).
+
 A legutóbbi verzió (v0.8.0) óta megjelent főbb fejlesztések:
 
 - **Kétnyelvű dokumentáció**: A projekt teljes dokumentációja elérhető magyarul (`README.md`) és angolul (`README.en.md`) is.
