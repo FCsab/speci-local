@@ -94,6 +94,23 @@ impl App {
                 ui.close();
             }
             ui.separator();
+            if ui
+                .button("Open in web editor")
+                .on_hover_text("Open this project in the ELTE web editor (progalap.elte.hu)")
+                .clicked()
+            {
+                self.open_in_web_editor(ui.ctx());
+                ui.close();
+            }
+            if ui
+                .button("Copy web editor link")
+                .on_hover_text("Copy a link that opens this project in the ELTE web editor")
+                .clicked()
+            {
+                self.copy_web_link(ui.ctx());
+                ui.close();
+            }
+            ui.separator();
             ui.label("Font size");
             ui.add(egui::Slider::new(&mut self.font, 12.0..=28.0).suffix(" px"));
             ui.separator();

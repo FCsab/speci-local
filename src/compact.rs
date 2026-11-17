@@ -1,5 +1,6 @@
 //! The compact clipboard form of a project: a prefix such as `SPECI1:` followed by
-//! base64url(deflate(text)), short enough to send through a chat.
+//! base64url(deflate(text)), short enough to send through a chat. Also the links that open a
+//! project in the ELTE web editors.
 
 const MAX_UNPACKED: usize = 16 << 20;
 
@@ -65,9 +66,64 @@ pub fn b64_decode(s: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
+pub const SPEC_EDITOR: &str = "https://progalap.elte.hu/specifikacio/v1/";
+pub const STUKI_EDITOR: &str = "https://progalap.elte.hu/stuki/v1/";
+
+/// A link that opens `json` in one of the ELTE web editors, as their own Share button makes it:
+/// `?data=` + standard base64 of the gzipped JSON, URL-encoded.
+pub fn web_link(editor: &str, json: &str) -> String {
+    let b64 = b64_encode(&gzip(json.as_bytes()));
+    let pad = "%3D".repeat((4 - b64.len() % 4) % 4);
+    // base64url to standard base64 (+ and /), URL-encoded
+    let data = b64.replace('-', "%2B").replace('_', "%2F");
+    format!("{editor}?data={data}{pad}")
+}
+
+/// The browser's DecompressionStream checks the trailer, so the CRC and length must be right.
+fn gzip(data: &[u8]) -> Vec<u8> {
+    let mut out = vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0xff];
+    out.extend(miniz_oxide::deflate::compress_to_vec(data, 9));
+    out.extend(crc32(data).to_le_bytes());
+    out.extend((data.len() as u32).to_le_bytes());
+    out
+}
+
+fn crc32(data: &[u8]) -> u32 {
+    !data.iter().fold(!0u32, |crc, &b| {
+        (0..8).fold(crc ^ u32::from(b), |c, _| {
+            if c & 1 != 0 {
+                c >> 1 ^ 0xedb8_8320
+            } else {
+                c >> 1
+            }
+        })
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn web_links_hold_checked_gzip() {
+        assert_eq!(crc32(b"123456789"), 0xcbf4_3926);
+        let text = "Be: n∈N\n".repeat(20);
+        let gz = gzip(text.as_bytes());
+        let n = gz.len();
+        assert_eq!(inflate(&gz[10..n - 8]).unwrap(), text.as_bytes());
+        assert_eq!(gz[n - 8..n - 4], crc32(text.as_bytes()).to_le_bytes());
+        assert_eq!(gz[n - 4..], (text.len() as u32).to_le_bytes());
+        let link = web_link(SPEC_EDITOR, &text);
+        let data = link.strip_prefix(SPEC_EDITOR).unwrap();
+        let data = data.strip_prefix("?data=").unwrap();
+        assert!(data.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'%'));
+        let std = data
+            .replace("%2B", "+")
+            .replace("%2F", "/")
+            .replace("%3D", "=");
+        assert_eq!(std.len() % 4, 0);
+        assert_eq!(b64_decode(&std).unwrap(), gz);
+    }
 
     #[test]
     fn base64_round_trip() {

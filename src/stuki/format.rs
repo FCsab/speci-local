@@ -287,6 +287,11 @@ pub fn to_compact(p: &Program) -> String {
     compact::pack(COMPACT_PREFIX, &json)
 }
 
+/// A link that opens the project in the ELTE structogram editor.
+pub fn to_web_link(p: &Program) -> String {
+    compact::web_link(compact::STUKI_EDITOR, &to_json(p).to_string())
+}
+
 /// Does this clipboard text hold a structogram (rather than a specification)?
 pub fn looks_like_stuki(text: &str) -> bool {
     let t = text.trim();
@@ -442,21 +447,16 @@ mod tests {
         }
         assert_eq!(p.colors.text, vec!["#123456"]);
         // the web app's Share link: gzip + standard base64, URL-encoded
-        let gz = {
-            let deflated = miniz_oxide::deflate::compress_to_vec(web.as_bytes(), 6);
-            let mut g = vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 3];
-            g.extend(deflated);
-            g.extend([0u8; 8]);
-            g
-        };
-        let b64 = compact::b64_encode(&gz)
-            .replace('-', "%2B")
-            .replace('_', "%2F");
-        let link = format!("https://progalap.elte.hu/stuki/v1/?data={b64}");
+        let link = compact::web_link(compact::STUKI_EDITOR, web);
         assert!(looks_like_stuki(&link));
         let q = from_clipboard(&link).unwrap();
         assert_eq!(q.content(), p.content());
-        assert!(from_clipboard("https://progalap.elte.hu/stuki/v1/?uuid=1234").is_err());
+        assert_eq!(
+            from_clipboard(&to_web_link(&p)).unwrap().content(),
+            p.content()
+        );
+        let uuid_link = format!("{}?uuid=1234", compact::STUKI_EDITOR);
+        assert!(from_clipboard(&uuid_link).is_err());
         assert!(from_clipboard("STUKI1:@@").is_err());
     }
 
@@ -464,9 +464,10 @@ mod tests {
     fn tells_structograms_from_specifications() {
         assert!(looks_like_stuki(" STUKI1:abc"));
         assert!(looks_like_stuki("{\"nodes\":{},\"structograms\":[]}"));
-        assert!(looks_like_stuki(
-            "https://progalap.elte.hu/stuki/v1/?uuid=1"
-        ));
+        assert!(looks_like_stuki(&format!(
+            "{}?uuid=1",
+            compact::STUKI_EDITOR
+        )));
         assert!(!looks_like_stuki("SPECI1:abc"));
         assert!(!looks_like_stuki("Be: n∈N"));
         assert!(!looks_like_stuki("{\"other\": 1}"));

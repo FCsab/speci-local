@@ -80,6 +80,24 @@ pub fn to_compact(doc: &Doc) -> String {
     compact::pack(COMPACT_PREFIX, &to_sp(doc))
 }
 
+/// A link that opens the project in the ELTE specification editor. The web app keeps no title,
+/// so it goes in as the first comment line, as in a `.sp` file.
+pub fn to_web_link(doc: &Doc) -> String {
+    let mut spec = String::new();
+    if !doc.title.trim().is_empty() {
+        spec = format!("{TITLE}{}\n", doc.title.trim());
+    }
+    spec.push_str(&doc.spec);
+    // result 0: pending, the web app runs the tests itself
+    let tests: Vec<_> = doc
+        .tests
+        .iter()
+        .map(|t| serde_json::json!({"data": t, "name": "", "result": 0}))
+        .collect();
+    let json = serde_json::json!({"specification": spec, "tests": tests});
+    compact::web_link(compact::SPEC_EDITOR, &json.to_string())
+}
+
 /// Read a project back from clipboard text: the compact form, or plain `.sp` / specification text.
 pub fn from_clipboard(text: &str) -> Result<Doc, String> {
     let t = text.trim();
@@ -152,6 +170,33 @@ mod tests {
         let e = from_clipboard("just some text").unwrap_err();
         assert!(e.contains("doesn't contain a project"), "{e}");
         assert!(from_clipboard("  \n ").unwrap_err().contains("empty"));
+    }
+
+    #[test]
+    fn web_link_holds_what_the_spec_editor_reads() {
+        let doc = Doc {
+            title: "Párosak".into(),
+            spec: "Be: n∈N\nKi: x∈N\nEf: -\nUf: x=n\n".into(),
+            tests: vec!["n: 1\nx: 1\n".into(), "n: 2\n".into()],
+        };
+        let link = to_web_link(&doc);
+        let data = link
+            .strip_prefix(compact::SPEC_EDITOR)
+            .and_then(|l| l.strip_prefix("?data="))
+            .unwrap()
+            .replace("%2B", "+")
+            .replace("%2F", "/")
+            .replace("%3D", "=");
+        let gz = compact::b64_decode(&data).unwrap();
+        let json = compact::inflate(&gz[10..gz.len() - 8]).unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&json).unwrap();
+        assert_eq!(
+            v["specification"],
+            "// title: Párosak\nBe: n∈N\nKi: x∈N\nEf: -\nUf: x=n\n"
+        );
+        assert_eq!(v["tests"][1]["data"], "n: 2\n");
+        assert_eq!(v["tests"][0]["name"], "");
+        assert_eq!(v["tests"][0]["result"], 0);
     }
 
     #[test]
