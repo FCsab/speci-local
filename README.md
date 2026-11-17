@@ -28,6 +28,7 @@ Windowson, Linuxon, macOS-en és Androidon fut, egyetlen Rust kódbázisból ([e
 - [Fordítás forráskódból](#fordítás-forráskódból)
 - [Fejlesztés](#fejlesztés)
 - [Kiadás](#kiadás)
+- [Code signing policy](#code-signing-policy)
 - [Ami nem került bele](#ami-nem-került-bele)
 - [Köszönet](#köszönet)
 
@@ -315,6 +316,19 @@ A `SKILL.md` a specifikációs nyelv kézikönyve úgy, ahogy az online szerkesz
 A workflow minden platformra megépíti az alkalmazást, lefuttatja a teszteket, és a fájlokat a kiadáshoz csatolja.
 
 Helyben frissülő APK-khoz add hozzá az `ANDROID_KEYSTORE` (egy `.jks` fájl base64 alakja) és az `ANDROID_KEYSTORE_PASSWORD` titkot a repóhoz. Ezek nélkül minden kiadást egy új, eldobható kulcs ír alá, így új verzió telepítése előtt a régit el kell távolítani.
+
+A Windows `.exe` aláírásához (lásd [Code signing policy](#code-signing-policy)) add hozzá a `SIGNPATH_API_TOKEN` titkot és a `SIGNPATH_ORGANIZATION_ID` változót a repóhoz. A SignPath-projekt neve `speci-local`, az aláírási szabályé `release-signing` legyen. Ezek nélkül az `.exe` aláíratlan marad. Az aláírási kérést a signpath.io-n kell jóváhagyni, amíg a workflow vár.
+
+## Code signing policy
+
+A Windows `.exe` alá van írva. Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+- Committers and reviewers: [FCsab](https://github.com/FCsab)
+- Approvers: [FCsab](https://github.com/FCsab)
+
+Minden kiadást a Release workflow épít ebből a repóból a GitHub saját gépein, és minden aláírási kérést kézzel kell jóváhagyni.
+
+**Adatvédelem:** a program semmilyen adatot nem küld más hálózati rendszereknek, hacsak a felhasználó, illetve a telepítő vagy üzemeltető kifejezetten nem kéri. Az egyetlen kivétel a frissítésellenőrzés: induláskor az alkalmazás lekéri a GitHubtól (`api.github.com`) a legújabb kiadás számát, és mást nem küld. A frissítési ablak *Don't show again* gombjával kikapcsolható.
 
 ## Ami nem került bele
 

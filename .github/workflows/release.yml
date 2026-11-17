@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  actions: read # SignPath downloads the unsigned .exe from the workflow's artifacts
 
 jobs:
   build:
@@ -26,6 +27,9 @@ jobs:
           - os: macos-latest
             archive: speci-local-macos-universal.zip
     runs-on: ${{ matrix.os }}
+    env:
+      # secrets can't be tested in `if:`, an env var can
+      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -35,6 +39,32 @@ jobs:
       - run: cargo test --release --locked
       - if: runner.os != 'macOS'
         run: cargo build --release --locked
+      # Windows: sign the .exe through SignPath Foundation (see "Code signing policy" in the
+      # README) when the SIGNPATH_API_TOKEN secret and SIGNPATH_ORGANIZATION_ID variable are set.
+      # Each request waits for a manual approval on signpath.io (up to an hour).
+      - name: Upload the unsigned .exe
+        id: unsigned
+        if: runner.os == 'Windows' && env.SIGNPATH_API_TOKEN != ''
+        uses: actions/upload-artifact@v7
+        with:
+          path: target/release/speci-local.exe
+          archive: false
+      - name: Sign the .exe
+        if: steps.unsigned.outcome == 'success'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: speci-local
+          signing-policy-slug: release-signing
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: target/signed
+          skip-decompress: true
+      - if: steps.unsigned.outcome == 'success'
+        shell: pwsh
+        run: Copy-Item target/signed/speci-local.exe target/release/speci-local.exe -Force
       - name: Package (Linux)
         if: runner.os == 'Linux'
         run: tar -czf ${{ matrix.archive }} -C target/release speci-local -C ../.. README.md README.en.md

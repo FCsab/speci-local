@@ -28,6 +28,7 @@ It runs on Windows, Linux, macOS and Android from one Rust code base ([egui](htt
 - [Build from source](#build-from-source)
 - [Development](#development)
 - [Releasing](#releasing)
+- [Code signing policy](#code-signing-policy)
 - [Not included](#not-included)
 - [Credits](#credits)
 
@@ -315,6 +316,19 @@ How the pieces are tested against each other:
 The workflow builds every platform, runs the tests, and attaches the files to the release.
 
 For APKs that update in place, add the repository secrets `ANDROID_KEYSTORE` (the base64 of a `.jks` file) and `ANDROID_KEYSTORE_PASSWORD`. Without them, each release is signed with a new throwaway key, so the old version must be uninstalled before installing a new one.
+
+To sign the Windows `.exe` (see [Code signing policy](#code-signing-policy)), add the repository secret `SIGNPATH_API_TOKEN` and the repository variable `SIGNPATH_ORGANIZATION_ID`. The SignPath project must be called `speci-local`, with a signing policy `release-signing`. Without them the `.exe` stays unsigned. Approve each signing request on signpath.io while the workflow waits.
+
+## Code signing policy
+
+The Windows `.exe` is signed. Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+- Committers and reviewers: [FCsab](https://github.com/FCsab)
+- Approvers: [FCsab](https://github.com/FCsab)
+
+Every release is built from this repository by the Release workflow on GitHub's own runners, and each signing request is approved by hand.
+
+**Privacy:** this program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. The one exception is the update check: at start the app asks GitHub (`api.github.com`) for the number of the latest release, and sends nothing else. Turn it off with *Don't show again* in the update dialog.
 
 ## Not included
 

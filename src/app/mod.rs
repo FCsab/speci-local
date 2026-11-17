@@ -103,6 +103,8 @@ struct App {
     skipped_version: String,
     /// "Don't show again" in the update dialog.
     no_update_check: bool,
+    /// The first launch asked whether to add the app to the app menu.
+    menu_asked: bool,
     #[serde(skip)]
     update_rx: Option<std::sync::mpsc::Receiver<String>>,
     /// A newer release to tell the user about.
@@ -180,6 +182,7 @@ impl Default for App {
             vim: false,
             skipped_version: String::new(),
             no_update_check: false,
+            menu_asked: false,
             update_rx: None,
             new_version: None,
             vim_state: Vim::default(),

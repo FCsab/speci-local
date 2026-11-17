@@ -7,6 +7,7 @@ default-members = ["."]
 [workspace.package]
 version = "1.0.0"
 edition = "2024"
+license = "MIT"
 
 # the GUI libraries, each version in one place: raise these three together when upgrading
 # egui (eframe and egui_kittest share a version; winit must be the one eframe uses)
@@ -19,6 +20,7 @@ winit = { version = "0.30", default-features = false }
 name = "speci-local"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [dependencies]
 # every system picks its renderer (and Android can't have the `accesskit` feature) below

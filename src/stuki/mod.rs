@@ -139,18 +139,15 @@ pub struct Stuki {
     /// What to do once the Android "Save as" list has saved the file.
     #[serde(skip)]
     pub after_save: Option<Pending>,
-    /// From spec was pressed: the app builds the structograms from its specification.
+    /// The Konami code was typed: the app builds the structograms from its specification.
     #[serde(skip)]
     pub wants_spec: bool,
-    /// The From spec button shows once the Konami code is typed, until the app closes.
-    #[serde(skip)]
-    from_spec_button: bool,
     /// The last keys pressed, to spot the Konami code.
     #[serde(skip)]
     keys: Vec<egui::Key>,
 }
 
-/// ↑↑↓↓←→←→BA: shows (or hides again) the From spec button.
+/// ↑↑↓↓←→←→BA: builds the structograms from the specification.
 const KONAMI: [egui::Key; 10] = {
     use egui::Key::*;
     [
@@ -187,7 +184,6 @@ impl Default for Stuki {
             file_request: None,
             after_save: None,
             wants_spec: false,
-            from_spec_button: false,
             keys: vec![],
         }
     }
@@ -282,7 +278,7 @@ impl Stuki {
             egui::Panel::top("stuki-help")
                 .resizable(false)
                 .frame(bar.fill(ui.visuals().faint_bg_color))
-                .show(ui, |ui| menu::help(ui, self.from_spec_button));
+                .show(ui, |ui| menu::help(ui));
         }
         let look = Look::new(ui.visuals().dark_mode);
         egui::CentralPanel::default()
@@ -317,7 +313,7 @@ impl Stuki {
             }
             self.keys.push(k);
             if self.keys == KONAMI {
-                self.from_spec_button = !self.from_spec_button;
+                self.wants_spec = true;
                 self.keys.clear();
             }
         }

@@ -6,9 +6,7 @@ use super::rich::Rich;
 use super::settings::{Look, Settings, ZOOM_RANGE};
 use super::{Drag, Stuki};
 use crate::platform;
-use crate::ui::{
-    I_BRUSH, I_DOWNLOAD, I_HELP, I_IMAGE, I_REDO, I_RUN, I_SLIDERS, I_TEXT, I_UNDO, I_WAND,
-};
+use crate::ui::{I_BRUSH, I_DOWNLOAD, I_HELP, I_IMAGE, I_REDO, I_RUN, I_SLIDERS, I_TEXT, I_UNDO};
 use eframe::egui::{self, CursorIcon, Id, Rect, RichText, Sense, StrokeKind, Vec2, pos2, vec2};
 
 impl Stuki {
@@ -38,20 +36,6 @@ impl Stuki {
                 self.redo();
             }
             ui.separator();
-            // hidden until the Konami code (see `KONAMI`)
-            if self.from_spec_button
-                && ui
-                    .button(label(I_WAND, "From spec"))
-                    .on_hover_text(
-                        "Build the structograms from the specification on the Specification \
-                         tab:\nthe patterns (SUM, COUNT, MAX, SEARCH, …) and quantifiers become \
-                         their standard algorithms, x=… an assignment, and every function gets \
-                         a structogram of its own.\nReplaces the current structograms.",
-                    )
-                    .clicked()
-            {
-                self.wants_spec = true;
-            }
             ui.toggle_value(&mut self.show_tests, label(I_RUN, "Run tests"))
                 .on_hover_text(
                     "Run the structograms on the test cases of the Specification tab, again \
@@ -316,21 +300,17 @@ fn preview(tag: Tag) -> Diagram {
     }
 }
 
-pub(super) fn help(ui: &mut egui::Ui, from_spec_button: bool) {
+pub(super) fn help(ui: &mut egui::Ui) {
     ui.label(RichText::new("How to use").strong());
     for p in [
         "Drag elements from the Elements menu and drop them onto a structogram: above or below an element, or onto an empty statement “-” to replace it. To put it after a loop or decision, drop it on that element's bottom edge, or just below the structogram. A blue line shows where it will go. The ↑ and ↓ buttons insert the element above or below the selected element instead (click an element to select it).",
         "Move an element by dragging its empty area or the handle in its corner. Drop it outside the structograms to delete it, or click the red ×. Hovering a multi-way decision shows +C (add case), +D (add default case) and × on its right.",
-        "From spec builds the structograms from the specification on the Specification tab: assignments, the standard algorithms of the patterns (SUM, COUNT, MAX, SEARCH, …) and quantifiers, decisions for c -> x=…, and a structogram for every function. Conditions on the result need no steps and are left out. It replaces the current structograms.",
         "Run tests runs the structograms on the test cases of the Specification tab and shows a green or red mark for each; it runs again after every change. A test case passes if the outputs the structogram computes satisfy the postcondition. Statements are read as assignments (x:=…, t[i]:=…), a loop with i=1..n at its top counts from 1 to n, and everything else in a loop or decision is a condition. The first structogram is the program; one named like f(i:Egész):Logikai is a function, called as f(…), that gives back its return value. Click a red mark to select the element where the run stopped.",
         "Hovering a structogram shows a bar above it: × deletes it, F shows the function header, V the local declarations, R the return value. The green + adds a new structogram.",
         "Colors: the text colors apply to the selected part of the text you clicked into last (or all of it), the element background to the selected element, the structogram background to its structogram. Edit changes a palette, which is saved with the project.",
         "Copy image (Ctrl+C) and Export PNG work on the structogram of the selected element; right-click a structogram, or use the picture button above it, to copy that one. Pictures are light (white background) unless you turn that off in the settings. Copy as text (Ctrl+Shift+C) copies the whole project as a STUKI1: line instead. Pinch or Ctrl+wheel zooms; two fingers move the editor on touch screens. Ctrl+Z / Ctrl+Y undo and redo, Delete removes the selected element.",
         "Save writes a .st file (the web app's own format). Copy puts the whole project on the clipboard as one STUKI1: line; Paste reads that, a .st file's text, or a Stuki share link (…/stuki/v1/?data=…).",
-    ]
-    .into_iter()
-    .filter(|p| from_spec_button || !p.starts_with("From spec"))
-    {
+    ] {
         ui.label(p);
     }
 }
