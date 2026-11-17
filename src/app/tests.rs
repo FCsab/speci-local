@@ -118,6 +118,41 @@ fn stuki_drag_and_drop() {
     assert!(h.state().stuki.dirty());
 }
 
+#[test]
+fn stuki_empty_statement_stays_put() {
+    use crate::stuki::model::{Kind, Node, Tag};
+    let mut h = Harness::builder()
+        .with_size([1360.0, 900.0])
+        .build_eframe(|cc| {
+            let mut a = create(cc, None);
+            a.tool = Tool::Stuki;
+            a.stuki = Stuki::default();
+            a.stuki.program.diagrams[0].body = vec![Node::new(Tag::While)];
+            a
+        });
+    h.run_steps(4);
+    let (nodes, _) = h.state().stuki.seen.clone();
+    let (looped, inner) = (nodes[0].1, nodes[1].1);
+    for to in [
+        looped.center_bottom() + egui::vec2(0.0, 10.0),
+        egui::pos2(1300.0, 850.0),
+    ] {
+        h.hover_at(inner.center());
+        h.run();
+        h.drag_at(inner.center());
+        h.run();
+        for k in 1..=8 {
+            h.hover_at(inner.center() + (to - inner.center()) * k as f32 / 8.0);
+            h.run();
+        }
+        h.drop_at(to);
+        h.run_steps(3);
+        let body = &h.state().stuki.program.diagrams[0].body;
+        assert_eq!(body.len(), 1);
+        assert!(matches!(&body[0].kind, Kind::While { body, .. } if body[0].is_noop()));
+    }
+}
+
 /// Stuki: Ctrl+C and the toolbar's copy button copy a picture, Ctrl+Shift+C the text line.
 #[test]
 fn stuki_copies_pictures() {
