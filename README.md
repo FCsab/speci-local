@@ -207,7 +207,7 @@ A `.st` fájl a webalkalmazás saját állapota JSON-ban (az általa tárolt `no
 - A Specification fülön a másolás gomb (Ctrl+Shift+C) a specifikációt és az összes tesztesetet egyetlen tömörített sorként, `SPECI1:…` alakban teszi a vágólapra. Csetben könnyű elküldeni.
 - A Stuki fülön a **Copy as text**, a Ctrl+Shift+C vagy a Shift+kattintás a másolás gombra egy `STUKI1:…` sort másol.
 - A beállítások menü **Open in web editor** pontja az aktuális fül projektjét megnyitja az ELTE webes szerkesztőjében; a **Copy web editor link** a linket másolja. A webes szerkesztőnek nincs címe, ezért a specifikáció címe az első megjegyzéssorba kerül.
-- A beillesztés (Ctrl+Shift+V) mindkét sort beolvassa, és a megfelelő fülön nyitja meg. Elfogad sima specifikációszöveget, `.st` fájl szövegét és a webalkalmazás megosztási linkjeit is (`…/stuki/v1/?data=…`).
+- A beillesztés (Ctrl+Shift+V) mindkét sort beolvassa, és a megfelelő fülön nyitja meg. Elfogad sima specifikációszöveget, `.st` fájl szövegét és a webalkalmazások megosztási linkjeit is (`…/specifikacio/v1/?data=…`, `…/stuki/v1/?data=…`).
 - Ha a rendszer vágólapja nem olvasható, megnyílik egy mező, ahová Ctrl+V-vel be lehet illeszteni.
 
 ## Billentyűparancsok
