@@ -18,6 +18,7 @@ Windowson, Linuxon, macOS-en és Androidon fut, egyetlen Rust kódbázisból ([e
 ## Tartalom
 
 - [Telepítés](#telepítés)
+- [Víruskereső-figyelmeztetések](#víruskereső-figyelmeztetések)
 - [Gyors kezdés](#gyors-kezdés)
 - [Újdonságok (v1.0)](#újdonságok-v10)
 - [Specifikációk](#specifikációk)
@@ -28,7 +29,7 @@ Windowson, Linuxon, macOS-en és Androidon fut, egyetlen Rust kódbázisból ([e
 - [Fordítás forráskódból](#fordítás-forráskódból)
 - [Fejlesztés](#fejlesztés)
 - [Kiadás](#kiadás)
-- [Code signing policy](#code-signing-policy)
+- [Adatvédelem](#adatvédelem)
 - [Ami nem került bele](#ami-nem-került-bele)
 - [Köszönet](#köszönet)
 
@@ -48,6 +49,15 @@ Megjegyzések:
 - **macOS**: az alkalmazást az Apple nem hitelesítette (notarization), ezért az első indítást letiltja. Engedélyezd a *Rendszerbeállítások → Adatvédelem és biztonság → Megnyitás mindenképp* pontban, vagy futtasd ezt: `xattr -dr com.apple.quarantine /Applications/speci-local.app`.
 - **Linux**: OpenGL és a szokásos ablakkezelő könyvtárak kellenek hozzá (X11/Wayland, `libxkbcommon`), a Megnyitás/Mentés ablakokhoz pedig az `xdg-desktop-portal` (GNOME-on és KDE-n alapból megvan).
   Az első indítás telepít egy asztali bejegyzést (`~/.local/share/applications/speci-local.desktop`) és egy ikont (`~/.local/share/icons/hicolor/256x256/apps/speci-local.png`), így az alkalmazásnak lesz ikonja, és megjelenik az alkalmazásmenüben. Ha törlöd ezt a két fájlt, eltűnik onnan.
+
+## Víruskereső-figyelmeztetések
+
+A kiadott programok nincsenek digitálisan aláírva, ezért a Windows SmartScreen vagy egy víruskereső figyelmeztethet miattuk, akár karanténba is teheti őket.
+Ez a még kevesek által letöltött, aláíratlan kis programoknál gyakori, és nem azt jelenti, hogy bármi ártalmasat találtak bennük.
+Windowson a *További információ → Futtatás mindenképp* indítja el az alkalmazást.
+
+Minden kiadást a [Release workflow](.github/workflows/release.yml) épít ebből a repóból, a GitHub saját gépein.
+Ha így sem érzed biztonságosnak egy letöltött program futtatását, fordítsd le magad a forráskódból: lásd [Fordítás forráskódból](#fordítás-forráskódból). Néhány percig tart, és ugyanazt az alkalmazást kapod.
 
 ## Gyors kezdés
 
@@ -238,19 +248,66 @@ Keskeny képernyőn (telefonon, vagy keskeny ablakban asztali gépen) egyszerre 
 
 ## Fordítás forráskódból
 
-Egy [Rust eszközlánc](https://rustup.rs) kell hozzá (2024-es kiadás).
+Kell hozzá a [Rust](https://rustup.rs) (stabil, 2024-es kiadás) és a forráskód: vagy `git clone https://github.com/FCsab/speci-local`, vagy egy [kiadás](https://github.com/FCsab/speci-local/releases) *Source code (zip)* fájlja, kicsomagolva.
+A fordítási parancsokat a forráskód mappájában futtasd. Az első fordítás letölti a szükséges könyvtárakat, és néhány percig tart; a `cargo run --release` egy lépésben fordít és el is indítja az alkalmazást.
 
-```sh
-cargo run --release
-```
+### Windows
 
-Debianon vagy Ubuntun előbb telepítsd a fordításhoz szükséges csomagokat:
+1. Telepítsd a Rustot a [rustup-init.exe](https://rustup.rs) programmal (vagy: `winget install Rustlang.Rustup`). Amikor rákérdez, engedd, hogy a Visual Studio C++ fordítóeszközeit is telepítse: a Rustnak kell a linkerük.
+2. Nyiss egy új PowerShell-ablakot a forráskód mappájában, és fordíts:
 
-```sh
-sudo apt-get install libxkbcommon-dev libgtk-3-dev
-```
+   ```powershell
+   cargo build --release
+   ```
 
-macOS-en a `scripts/bundle-macos.sh` elkészíti a `speci-local.app`-ot (univerzális bináris Apple Siliconra és Intelre), és becsomagolja.
+3. A program: `target\release\speci-local.exe`.
+
+### Linux
+
+1. Telepíts egy C-fordítót és a könyvtárakat, amelyekre az ablak és a fájlválasztó ablakok épülnek:
+
+   ```sh
+   sudo apt-get install build-essential curl libxkbcommon-dev libgtk-3-dev   # Debian, Ubuntu
+   sudo dnf install gcc libxkbcommon-devel gtk3-devel                        # Fedora
+   sudo pacman -S base-devel libxkbcommon gtk3                               # Arch
+   ```
+
+2. Telepítsd a Rustot:
+
+   ```sh
+   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+   ```
+
+3. Nyiss egy új terminált a forráskód mappájában, és fordíts:
+
+   ```sh
+   cargo build --release
+   ```
+
+4. A program: `target/release/speci-local`.
+
+### macOS
+
+1. Telepítsd az Apple parancssori eszközeit (fordító és linker):
+
+   ```sh
+   xcode-select --install
+   ```
+
+2. Telepítsd a Rustot:
+
+   ```sh
+   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+   ```
+
+3. Nyiss egy új terminált a forráskód mappájában, és fordíts:
+
+   ```sh
+   cargo build --release                # a program: target/release/speci-local
+   scripts/bundle-macos.sh              # vagy egy teljes alkalmazás: target/speci-local.app (és egy .zip belőle)
+   ```
+
+   A magad fordította alkalmazás nem kerül karanténba, így a macOS a *Megnyitás mindenképp* lépés nélkül elindítja.
 
 ### Nix
 
@@ -318,18 +375,9 @@ A workflow minden platformra megépíti az alkalmazást, lefuttatja a teszteket,
 
 Helyben frissülő APK-khoz add hozzá az `ANDROID_KEYSTORE` (egy `.jks` fájl base64 alakja) és az `ANDROID_KEYSTORE_PASSWORD` titkot a repóhoz. Ezek nélkül minden kiadást egy új, eldobható kulcs ír alá, így új verzió telepítése előtt a régit el kell távolítani.
 
-A Windows `.exe` aláírásához (lásd [Code signing policy](#code-signing-policy)) add hozzá a `SIGNPATH_API_TOKEN` titkot és a `SIGNPATH_ORGANIZATION_ID` változót a repóhoz. A SignPath-projekt neve `speci-local`, az aláírási szabályé `release-signing` legyen. Ezek nélkül az `.exe` aláíratlan marad. Az aláírási kérést a signpath.io-n kell jóváhagyni, amíg a workflow vár.
+## Adatvédelem
 
-## Code signing policy
-
-A Windows `.exe` alá van írva. Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
-
-- Committers and reviewers: [FCsab](https://github.com/FCsab)
-- Approvers: [FCsab](https://github.com/FCsab)
-
-Minden kiadást a Release workflow épít ebből a repóból a GitHub saját gépein, és minden aláírási kérést kézzel kell jóváhagyni.
-
-**Adatvédelem:** a program semmilyen adatot nem küld más hálózati rendszereknek, hacsak a felhasználó, illetve a telepítő vagy üzemeltető kifejezetten nem kéri. Az egyetlen kivétel a frissítésellenőrzés: induláskor az alkalmazás lekéri a GitHubtól (`api.github.com`) a legújabb kiadás számát, és mást nem küld. A frissítési ablak *Don't show again* gombjával kikapcsolható.
+Az alkalmazás semmit nem küld sehová, hacsak te nem kéred. Az egyetlen kivétel a frissítésellenőrzés: induláskor az alkalmazás lekéri a GitHubtól (`api.github.com`) a legújabb kiadás számát, és mást nem küld. A frissítési ablak *Don't show again* gombjával kikapcsolható.
 
 ## Ami nem került bele
 

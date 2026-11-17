@@ -18,6 +18,7 @@ It runs on Windows, Linux, macOS and Android from one Rust code base ([egui](htt
 ## Contents
 
 - [Install](#install)
+- [Antivirus warnings](#antivirus-warnings)
 - [Quick start](#quick-start)
 - [What's new in v1.0](#whats-new-in-v10)
 - [Specifications](#specifications)
@@ -28,7 +29,7 @@ It runs on Windows, Linux, macOS and Android from one Rust code base ([egui](htt
 - [Build from source](#build-from-source)
 - [Development](#development)
 - [Releasing](#releasing)
-- [Code signing policy](#code-signing-policy)
+- [Privacy](#privacy)
 - [Not included](#not-included)
 - [Credits](#credits)
 
@@ -48,6 +49,15 @@ Notes:
 - **macOS**: the app isn't notarized by Apple, so the first start is blocked. Allow it in *System Settings → Privacy & Security → Open Anyway*, or run `xattr -dr com.apple.quarantine /Applications/speci-local.app`.
 - **Linux**: needs OpenGL and the usual windowing libraries (X11/Wayland, `libxkbcommon`), and the Open/Save dialogs need `xdg-desktop-portal` (standard on GNOME and KDE).
   The first start installs a desktop entry (`~/.local/share/applications/speci-local.desktop`) and an icon (`~/.local/share/icons/hicolor/256x256/apps/speci-local.png`), so the app shows its icon and appears in the application menu. Delete those two files to remove it again.
+
+## Antivirus warnings
+
+The released programs aren't code-signed, so Windows SmartScreen or an antivirus program may warn about them or even quarantine them.
+That is common for small unsigned apps that few people have downloaded yet, and it doesn't mean anything harmful was found.
+On Windows, *More info → Run anyway* starts the app.
+
+Every release is built from this repository by the [Release workflow](.github/workflows/release.yml) on GitHub's own machines.
+If you still don't feel safe running a downloaded program, build it yourself from the source code: see [Build from source](#build-from-source). It takes a few minutes, and the result is the same app.
 
 ## Quick start
 
@@ -238,19 +248,66 @@ On a narrow screen (a phone, or a narrow window on the desktop), one pane is sho
 
 ## Build from source
 
-You need a [Rust toolchain](https://rustup.rs) (edition 2024).
+You need [Rust](https://rustup.rs) (stable, edition 2024) and the source code: either `git clone https://github.com/FCsab/speci-local`, or *Source code (zip)* from a [release](https://github.com/FCsab/speci-local/releases), unpacked.
+Run the build commands in the source folder. The first build downloads the libraries it needs and takes a few minutes; `cargo run --release` builds and starts the app in one step.
 
-```sh
-cargo run --release
-```
+### Windows
 
-On Debian or Ubuntu, install the build dependencies first:
+1. Install Rust with [rustup-init.exe](https://rustup.rs) (or `winget install Rustlang.Rustup`). When it asks, let it install the Visual Studio C++ build tools too: Rust needs their linker.
+2. Open a new PowerShell window in the source folder and build:
 
-```sh
-sudo apt-get install libxkbcommon-dev libgtk-3-dev
-```
+   ```powershell
+   cargo build --release
+   ```
 
-On macOS, `scripts/bundle-macos.sh` builds `speci-local.app` (a universal binary for Apple Silicon and Intel) and zips it.
+3. The program is `target\release\speci-local.exe`.
+
+### Linux
+
+1. Install a C compiler and the libraries the window and the file dialogs build against:
+
+   ```sh
+   sudo apt-get install build-essential curl libxkbcommon-dev libgtk-3-dev   # Debian, Ubuntu
+   sudo dnf install gcc libxkbcommon-devel gtk3-devel                        # Fedora
+   sudo pacman -S base-devel libxkbcommon gtk3                               # Arch
+   ```
+
+2. Install Rust:
+
+   ```sh
+   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+   ```
+
+3. Open a new terminal in the source folder and build:
+
+   ```sh
+   cargo build --release
+   ```
+
+4. The program is `target/release/speci-local`.
+
+### macOS
+
+1. Install Apple's command line tools (compiler and linker):
+
+   ```sh
+   xcode-select --install
+   ```
+
+2. Install Rust:
+
+   ```sh
+   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+   ```
+
+3. Open a new terminal in the source folder and build:
+
+   ```sh
+   cargo build --release                # the program: target/release/speci-local
+   scripts/bundle-macos.sh              # or a whole app: target/speci-local.app (and a .zip of it)
+   ```
+
+   An app you built yourself isn't quarantined, so macOS starts it without the *Open Anyway* step.
 
 ### Nix
 
@@ -318,18 +375,9 @@ The workflow builds every platform, runs the tests, and attaches the files to th
 
 For APKs that update in place, add the repository secrets `ANDROID_KEYSTORE` (the base64 of a `.jks` file) and `ANDROID_KEYSTORE_PASSWORD`. Without them, each release is signed with a new throwaway key, so the old version must be uninstalled before installing a new one.
 
-To sign the Windows `.exe` (see [Code signing policy](#code-signing-policy)), add the repository secret `SIGNPATH_API_TOKEN` and the repository variable `SIGNPATH_ORGANIZATION_ID`. The SignPath project must be called `speci-local`, with a signing policy `release-signing`. Without them the `.exe` stays unsigned. Approve each signing request on signpath.io while the workflow waits.
+## Privacy
 
-## Code signing policy
-
-The Windows `.exe` is signed. Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
-
-- Committers and reviewers: [FCsab](https://github.com/FCsab)
-- Approvers: [FCsab](https://github.com/FCsab)
-
-Every release is built from this repository by the Release workflow on GitHub's own runners, and each signing request is approved by hand.
-
-**Privacy:** this program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. The one exception is the update check: at start the app asks GitHub (`api.github.com`) for the number of the latest release, and sends nothing else. Turn it off with *Don't show again* in the update dialog.
+The app sends nothing anywhere unless you ask it to. The one exception is the update check: at start the app asks GitHub (`api.github.com`) for the number of the latest release, and sends nothing else. Turn it off with *Don't show again* in the update dialog.
 
 ## Not included
 
