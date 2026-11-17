@@ -8,6 +8,7 @@ pub(super) fn check(spec: &Spec) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
     unknown_names(spec, &mut diags);
     unknown_types(spec, &mut diags);
+    pattern_codomains(spec, &mut diags);
     unused_in_post(spec, &mut diags);
     outputs_in_pre(spec, &mut diags);
     diags.sort_by_key(|d| (d.line, d.col));
@@ -187,6 +188,57 @@ fn unknown_function(spec: &Spec, off: usize, name: &str) -> Diagnostic {
 }
 
 // ---------------------------------------------------------------- types
+
+/// A function whose body is a pattern that gives several values (`MAX` → index and value,
+/// `CONDMAX` → found, index and value) must say so in its codomain: `f:N->N, f(i)=MAX(…)` is
+/// rejected by the online editor, and its value can't be compared with a number anyway.
+fn pattern_codomains(spec: &Spec, diags: &mut Vec<Diagnostic>) {
+    let mut funcs: Vec<_> = spec.funcs.iter().collect();
+    funcs.sort_by_key(|(_, f)| f.body.start);
+    for (name, f) in funcs {
+        let ExprKind::Macro { name: m, .. } = &*f.body.kind else {
+            continue;
+        };
+        let (parts, cod_example): (&[&str], &str) = match m.as_str() {
+            "SEARCH" => (&["found", "index"], "L x N"),
+            "MAX" | "MIN" => (&["index", "value"], "N x N"),
+            "CONDMAX" | "CONDMIN" => (&["found", "index", "value"], "L x N x N"),
+            "MIS" => (&["count", "items"], "N x N[]"),
+            _ => continue,
+        };
+        let one_record =
+            f.cod.len() == 1 && matches!(spec.resolve(&f.cod[0]), Some(Type::Record(_)) | None);
+        if f.cod.len() == parts.len() || one_record {
+            continue;
+        }
+        let written = spec.src[f.body.start..f.body.end]
+            .split('(')
+            .next()
+            .unwrap_or(m)
+            .trim();
+        let last = parts.len();
+        diags.push(
+            at(
+                spec,
+                f.body.start,
+                format!(
+                    "`{written}` gives {} values ({}), but the signature of `{name}` has {} in its codomain",
+                    parts.len(),
+                    parts.join(", "),
+                    f.cod.len()
+                ),
+            )
+            .doc("ch05-00-functions.html")
+            .explain(format!(
+                "{written} gives a tuple, so `{name}` would return all {} parts of it, not a single value. The online editor stops with an error on such a function.",
+                parts.len()
+            ))
+            .hint(format!(
+                "Write all parts in the codomain (like `{name}:…->{cod_example}`), or keep only the part you need with `.k`, like `{written}(…).{last}`."
+            )),
+        );
+    }
+}
 
 fn named_types<'t>(t: &'t Type, out: &mut Vec<&'t str>) {
     match t {

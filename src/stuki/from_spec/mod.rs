@@ -400,22 +400,7 @@ impl Gen<'_> {
                 self.pattern(name, var, lo, Some(hi), args, &[Some(t.clone())], out);
                 t
             }
-            _ if let Some((m, k)) = projection(e) => {
-                let ExprKind::Macro {
-                    name,
-                    var,
-                    lo,
-                    hi,
-                    args,
-                } = &*m.kind
-                else {
-                    unreachable!()
-                };
-                let t = self.fresh_slots(name, args);
-                let targets: Vec<_> = t.iter().cloned().map(Some).collect();
-                self.pattern(name, var, lo, hi.as_ref(), args, &targets, out);
-                t[k].clone()
-            }
+            _ if let Some((m, k)) = projection(e) => self.computed_slots(m, out)[k].clone(),
             _ => {
                 // compute the outermost patterns first, then use their variables
                 let mut parts = vec![];
@@ -431,13 +416,48 @@ impl Gen<'_> {
                     }
                 }
                 lifts.sort_by_key(|x| x.start);
+                // the same pattern written twice (`{KERES(…).2, ha KERES(…).1; …}`) is computed once
+                let mut done: Vec<(String, Vec<String>)> = vec![];
                 for x in lifts {
-                    let v = self.value(x, out);
-                    parts.push((x.start, x.end, v));
+                    let (whole, k) = match projection(x) {
+                        Some((m, k)) => (m, Some(k)),
+                        None => (x, None),
+                    };
+                    let key = self.text(whole);
+                    let slots = match done.iter().find(|(t, _)| *t == key) {
+                        Some((_, slots)) => slots.clone(),
+                        None => {
+                            let slots = match k {
+                                Some(_) => self.computed_slots(whole, out),
+                                None => vec![self.value(whole, out)],
+                            };
+                            done.push((key, slots.clone()));
+                            slots
+                        }
+                    };
+                    parts.push((x.start, x.end, slots[k.unwrap_or(0)].clone()));
                 }
                 self.bare(e, self.render(e, &self.renames, parts))
             }
         }
+    }
+
+    /// The variables that hold every part of a tuple-valued pattern, after its steps.
+    fn computed_slots(&mut self, m: &Expr, out: &mut Vec<Node>) -> Vec<String> {
+        let ExprKind::Macro {
+            name,
+            var,
+            lo,
+            hi,
+            args,
+        } = &*m.kind
+        else {
+            unreachable!()
+        };
+        let t = self.fresh_slots(name, args);
+        let targets: Vec<_> = t.iter().cloned().map(Some).collect();
+        self.pattern(name, var, lo, hi.as_ref(), args, &targets, out);
+        t
     }
 
     // ---------------------------------------------------------------- functions

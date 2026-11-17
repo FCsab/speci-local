@@ -718,3 +718,25 @@ fn cases_in_a_function() {
     assert!(red(none, "x: -1\ns: 1").contains("None of the cases"));
     assert!(spec_err("Be: x∈Z\nKi: s∈Z\nEf: -\nUf: s={1, x>0}\n").contains("`ha`"));
 }
+
+/// A function that returns a whole tuple-valued pattern needs every part in its codomain (#14).
+#[test]
+fn pattern_tuple_needs_its_codomain() {
+    let wrong = "Be: n∈N, x∈N[1..n]\nKi: m∈N\nFv: legnagyobb:N->N,\nlegnagyobb(k)=FELTMAX(j=1..n, x[j], j≤k)\nEf: n>0\nUf: m=legnagyobb(n)\n";
+    let m = spec_err(wrong);
+    assert!(m.contains("`FELTMAX` gives 3 values"), "{m}");
+    assert!(m.contains("line 4, column 15"), "{m}");
+    assert!(
+        spec_err(&wrong.replace("FELTMAX(j=1..n, x[j], j≤k)", "MAX(j=1..k, x[j])"))
+            .contains("gives 2 values")
+    );
+
+    let data = "n: 3\nx: [4, 9, 2]\nm: 9";
+    green(&wrong.replace("j≤k)", "j≤k).3"), &[data]);
+    green(
+        &wrong
+            .replace("N->N", "N->L x N x N")
+            .replace("legnagyobb(n)", "legnagyobb(n).3"),
+        &[data],
+    );
+}
