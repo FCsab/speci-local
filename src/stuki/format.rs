@@ -287,6 +287,11 @@ pub fn to_compact(p: &Program) -> String {
     compact::pack(COMPACT_PREFIX, &json)
 }
 
+/// A link that opens the project in the ELTE structogram editor.
+pub fn to_web_link(p: &Program) -> String {
+    compact::web_link(compact::STUKI_EDITOR, &to_json(p).to_string())
+}
+
 /// Does this clipboard text hold a structogram (rather than a specification)?
 pub fn looks_like_stuki(text: &str) -> bool {
     let t = text.trim();
@@ -305,19 +310,8 @@ pub fn from_clipboard(text: &str) -> Result<Program, String> {
     if t.starts_with('{') {
         return from_st(t);
     }
-    if let Some(i) = t.find("data=") {
-        let raw = &t[i + 5..];
-        let raw = &raw[..raw.find(['&', '#']).unwrap_or(raw.len())];
-        let b64: String = percent_decode(raw)
-            .chars()
-            .filter(|c| !c.is_whitespace())
-            .collect();
-        let gz =
-            compact::b64_decode(&b64).ok_or("The link's data is damaged (not valid base64).")?;
-        let json = gunzip(&gz).ok_or("The link's data is damaged (not valid gzip).")?;
-        let json = String::from_utf8(json)
-            .map_err(|_| "The link's data is not valid text.".to_string())?;
-        return from_st(&json);
+    if let Some(json) = compact::web_link_json(t) {
+        return from_st(&json?);
     }
     if t.contains("uuid=") {
         return Err("This link points to a structogram saved on the university server, which can't be reached offline. Open it in the web app and use its Share button (a link with data=), or copy the structogram there.".into());
@@ -327,48 +321,6 @@ pub fn from_clipboard(text: &str) -> Result<Program, String> {
     } else {
         Err("The clipboard doesn't contain a structogram: expected text starting with STUKI1:, a .st file's contents, or a Stuki link with data=.".into())
     }
-}
-
-fn percent_decode(s: &str) -> String {
-    let b = s.as_bytes();
-    let mut out = Vec::with_capacity(b.len());
-    let mut i = 0;
-    while i < b.len() {
-        if b[i] == b'%'
-            && i + 2 < b.len()
-            && let Ok(v) =
-                u8::from_str_radix(std::str::from_utf8(&b[i + 1..i + 3]).unwrap_or("zz"), 16)
-        {
-            out.push(v);
-            i += 3;
-        } else {
-            out.push(b[i]);
-            i += 1;
-        }
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
-/// gzip (what the browser's CompressionStream makes) → raw deflate → bytes.
-fn gunzip(d: &[u8]) -> Option<Vec<u8>> {
-    if d.len() < 18 || d[0] != 0x1f || d[1] != 0x8b || d[2] != 8 {
-        return None;
-    }
-    let flags = d[3];
-    let mut i = 10;
-    if flags & 4 != 0 {
-        let n = u16::from_le_bytes([*d.get(i)?, *d.get(i + 1)?]) as usize;
-        i += 2 + n;
-    }
-    for bit in [8u8, 16] {
-        if flags & bit != 0 {
-            i += d.get(i..)?.iter().position(|&c| c == 0)? + 1;
-        }
-    }
-    if flags & 2 != 0 {
-        i += 2;
-    }
-    compact::inflate(d.get(i..)?)
 }
 
 #[cfg(test)]
@@ -442,21 +394,16 @@ mod tests {
         }
         assert_eq!(p.colors.text, vec!["#123456"]);
         // the web app's Share link: gzip + standard base64, URL-encoded
-        let gz = {
-            let deflated = miniz_oxide::deflate::compress_to_vec(web.as_bytes(), 6);
-            let mut g = vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 3];
-            g.extend(deflated);
-            g.extend([0u8; 8]);
-            g
-        };
-        let b64 = compact::b64_encode(&gz)
-            .replace('-', "%2B")
-            .replace('_', "%2F");
-        let link = format!("https://progalap.elte.hu/stuki/v1/?data={b64}");
+        let link = compact::web_link(compact::STUKI_EDITOR, web);
         assert!(looks_like_stuki(&link));
         let q = from_clipboard(&link).unwrap();
         assert_eq!(q.content(), p.content());
-        assert!(from_clipboard("https://progalap.elte.hu/stuki/v1/?uuid=1234").is_err());
+        assert_eq!(
+            from_clipboard(&to_web_link(&p)).unwrap().content(),
+            p.content()
+        );
+        let uuid_link = format!("{}?uuid=1234", compact::STUKI_EDITOR);
+        assert!(from_clipboard(&uuid_link).is_err());
         assert!(from_clipboard("STUKI1:@@").is_err());
     }
 
@@ -464,9 +411,10 @@ mod tests {
     fn tells_structograms_from_specifications() {
         assert!(looks_like_stuki(" STUKI1:abc"));
         assert!(looks_like_stuki("{\"nodes\":{},\"structograms\":[]}"));
-        assert!(looks_like_stuki(
-            "https://progalap.elte.hu/stuki/v1/?uuid=1"
-        ));
+        assert!(looks_like_stuki(&format!(
+            "{}?uuid=1",
+            compact::STUKI_EDITOR
+        )));
         assert!(!looks_like_stuki("SPECI1:abc"));
         assert!(!looks_like_stuki("Be: n∈N"));
         assert!(!looks_like_stuki("{\"other\": 1}"));
@@ -478,37 +426,6 @@ mod tests {
                 .unwrap_err()
                 .contains("doesn't contain a structogram")
         );
-    }
-
-    #[test]
-    fn percent_decoding() {
-        assert_eq!(percent_decode("a%2Bb%2fc%3D"), "a+b/c=");
-        assert_eq!(percent_decode("%C5%91"), "ő");
-        assert_eq!(percent_decode("100%"), "100%");
-        assert_eq!(percent_decode("%zz%4"), "%zz%4");
-    }
-
-    #[test]
-    fn gunzip_skips_the_optional_header_fields() {
-        let text = b"structogram".repeat(20);
-        let deflated = miniz_oxide::deflate::compress_to_vec(&text, 6);
-        let gzip = |flags: u8, extra: &[u8]| {
-            let mut g = vec![0x1f, 0x8b, 8, flags, 0, 0, 0, 0, 0, 3];
-            g.extend_from_slice(extra);
-            g.extend_from_slice(&deflated);
-            g.extend([0u8; 8]);
-            g
-        };
-        assert_eq!(gunzip(&gzip(0, &[])).unwrap(), text);
-        assert_eq!(gunzip(&gzip(4, &[3, 0, 1, 2, 3])).unwrap(), text);
-        assert_eq!(gunzip(&gzip(8, b"name.st\0")).unwrap(), text);
-        assert_eq!(gunzip(&gzip(8 | 16 | 2, b"n\0c\0\x12\x34")).unwrap(), text);
-        assert!(gunzip(b"plain text, long enough to look at").is_none());
-        assert!(gunzip(&gzip(0, &[])[..12]).is_none());
-        let mut other = gzip(0, &[]);
-        other[2] = 7;
-        assert!(gunzip(&other).is_none());
-        assert!(gunzip(&gzip(8, b"never ends")).is_none());
     }
 
     #[test]

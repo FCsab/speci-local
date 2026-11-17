@@ -206,7 +206,8 @@ A `.st` file is the web app's own state as JSON (the `nodes` and `structograms` 
 
 - On the Specification tab, the copy button (Ctrl+Shift+C) puts the specification and all test cases on the clipboard as one compressed line, `SPECI1:…`. It's handy for sending through chat.
 - On the Stuki tab, **Copy as text**, Ctrl+Shift+C or Shift-clicking the copy button copies one `STUKI1:…` line.
-- Paste (Ctrl+Shift+V) reads either line and opens it on the right tab. It also accepts plain specification text, a `.st` file's text, and the web app's share links (`…/stuki/v1/?data=…`).
+- **Open in web editor** in the settings menu opens the current tab's project in the ELTE web editor; **Copy web editor link** copies that link instead. The web editor has no title, so a specification's title goes in as its first comment line.
+- Paste (Ctrl+Shift+V) reads either line and opens it on the right tab. It also accepts plain specification text, a `.st` file's text, and the web apps' share links (`…/specifikacio/v1/?data=…`, `…/stuki/v1/?data=…`).
 - If the system clipboard can't be read, a box opens where you can paste with Ctrl+V instead.
 
 ## Keyboard shortcuts

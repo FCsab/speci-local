@@ -80,11 +80,38 @@ pub fn to_compact(doc: &Doc) -> String {
     compact::pack(COMPACT_PREFIX, &to_sp(doc))
 }
 
+/// A link that opens the project in the ELTE specification editor. The web app keeps no title,
+/// so it goes in as the first comment line, as in a `.sp` file.
+pub fn to_web_link(doc: &Doc) -> String {
+    let mut spec = String::new();
+    if !doc.title.trim().is_empty() {
+        spec = format!("{TITLE}{}\n", doc.title.trim());
+    }
+    spec.push_str(&doc.spec);
+    // result 0: pending, the web app runs the tests itself
+    let tests: Vec<_> = doc
+        .tests
+        .iter()
+        .map(|t| serde_json::json!({"data": t, "name": "", "result": 0}))
+        .collect();
+    let json = serde_json::json!({"specification": spec, "tests": tests});
+    compact::web_link(compact::SPEC_EDITOR, &json.to_string())
+}
+
 /// Read a project back from clipboard text: the compact form, or plain `.sp` / specification text.
 pub fn from_clipboard(text: &str) -> Result<Doc, String> {
     let t = text.trim();
     if let Some(rest) = t.strip_prefix(COMPACT_PREFIX) {
         return Ok(from_sp(&compact::unpack(COMPACT_PREFIX, rest, "project")?));
+    }
+    // a specification may well say `data=`, so only links to the web editor count
+    if t.contains("/specifikacio") {
+        if let Some(json) = compact::web_link_json(t) {
+            return from_web_json(&json?);
+        }
+        if t.contains("uuid=") {
+            return Err("This link points to a specification saved on the university server, which can't be read without logging in. Open it in the web editor and share it from there (a link with data=).".into());
+        }
     }
     let looks_like_spec = t.lines().any(|l| {
         let l = l.trim_start();
@@ -99,6 +126,28 @@ pub fn from_clipboard(text: &str) -> Result<Doc, String> {
     } else {
         Err("The clipboard doesn't contain a project: expected text starting with SPECI1: or a specification with blocks like Be:/Uf:.".into())
     }
+}
+
+/// A project as the web editor keeps it: `{"specification": …, "tests": [{"data": …}, …]}`.
+/// A title exported from here comes back from its comment line.
+fn from_web_json(json: &str) -> Result<Doc, String> {
+    let v: serde_json::Value = serde_json::from_str(json)
+        .map_err(|e| format!("The link's data is not a specification: {e}"))?;
+    let spec = v["specification"]
+        .as_str()
+        .ok_or("The link's data has no specification.")?;
+    let mut doc = from_sp(spec);
+    let tests: Vec<String> = v["tests"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|t| t["data"].as_str())
+        .map(|t| t.replace("\r\n", "\n"))
+        .collect();
+    if !tests.is_empty() {
+        doc.tests = tests;
+    }
+    Ok(doc)
 }
 
 #[cfg(test)]
@@ -152,6 +201,55 @@ mod tests {
         let e = from_clipboard("just some text").unwrap_err();
         assert!(e.contains("doesn't contain a project"), "{e}");
         assert!(from_clipboard("  \n ").unwrap_err().contains("empty"));
+    }
+
+    #[test]
+    fn web_link_holds_what_the_spec_editor_reads() {
+        let doc = Doc {
+            title: "Párosak".into(),
+            spec: "Be: n∈N\nKi: x∈N\nEf: -\nUf: x=n\n".into(),
+            tests: vec!["n: 1\nx: 1\n".into(), "n: 2\n".into()],
+        };
+        let link = to_web_link(&doc);
+        let data = link
+            .strip_prefix(compact::SPEC_EDITOR)
+            .and_then(|l| l.strip_prefix("?data="))
+            .unwrap()
+            .replace("%2B", "+")
+            .replace("%2F", "/")
+            .replace("%3D", "=");
+        let gz = compact::b64_decode(&data).unwrap();
+        let json = compact::inflate(&gz[10..gz.len() - 8]).unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&json).unwrap();
+        assert_eq!(
+            v["specification"],
+            "// title: Párosak\nBe: n∈N\nKi: x∈N\nEf: -\nUf: x=n\n"
+        );
+        assert_eq!(v["tests"][1]["data"], "n: 2\n");
+        assert_eq!(v["tests"][0]["name"], "");
+        assert_eq!(v["tests"][0]["result"], 0);
+        assert_eq!(from_clipboard(&link).unwrap(), doc);
+    }
+
+    #[test]
+    fn web_editor_links_paste() {
+        // as the web editor saves on Windows, without a title
+        let json = r#"{"specification":"Be: n∈N\r\nUf: data=n","tests":[{"data":"n: 1\r\n","name":"","result":1}]}"#;
+        let link = compact::web_link(compact::SPEC_EDITOR, json);
+        let doc = from_clipboard(&link).unwrap();
+        assert_eq!(doc.title, "");
+        assert_eq!(doc.spec, "Be: n∈N\nUf: data=n\n");
+        assert_eq!(doc.tests, ["n: 1\n"]);
+        // a specification that says data= is still a specification
+        assert_eq!(from_clipboard(&doc.spec).unwrap().spec, doc.spec);
+        let uuid_link = format!("{}?uuid=1234", compact::SPEC_EDITOR);
+        assert!(
+            from_clipboard(&uuid_link)
+                .unwrap_err()
+                .contains("logging in")
+        );
+        let damaged = format!("{}?data=@@", compact::SPEC_EDITOR);
+        assert!(from_clipboard(&damaged).unwrap_err().contains("damaged"));
     }
 
     #[test]

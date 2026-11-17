@@ -191,6 +191,33 @@ impl App {
         ctx.copy_text(text);
     }
 
+    /// Opens the current tab's project in the ELTE web editor.
+    pub(super) fn open_in_web_editor(&mut self, ctx: &egui::Context) {
+        ctx.open_url(egui::OpenUrl::new_tab(self.web_link()));
+        let msg = "Opened the project in the web editor".to_string();
+        match self.tool {
+            Tool::Spec => self.status = msg,
+            Tool::Stuki => self.stuki.status = msg,
+        }
+    }
+
+    /// Copies a link that opens the current tab's project in the ELTE web editor.
+    pub(super) fn copy_web_link(&mut self, ctx: &egui::Context) {
+        ctx.copy_text(self.web_link());
+        let msg = "Copied a link that opens the project in the web editor".to_string();
+        match self.tool {
+            Tool::Spec => self.status = msg,
+            Tool::Stuki => self.stuki.status = msg,
+        }
+    }
+
+    fn web_link(&self) -> String {
+        match self.tool {
+            Tool::Spec => crate::file::to_web_link(&self.doc),
+            Tool::Stuki => stuki::format::to_web_link(&self.stuki.program),
+        }
+    }
+
     pub(super) fn paste_project(&mut self) {
         match platform::paste() {
             Some(text) => self.import_text(&text),
