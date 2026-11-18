@@ -38,9 +38,9 @@ pub fn paste() -> Option<String> {
 /// The kinds of files the app reads and writes.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum FileKind {
-    /// `.sp` specification with test cases
+    /// `.sp` project: the specification, its test cases and the structograms
     Spec,
-    /// `.st` structogram (Stuki)
+    /// `.st` structograms in the web Stuki's format (read into a project)
     Stuki,
     Png,
 }
@@ -84,8 +84,8 @@ impl FileKind {
     #[cfg(not(target_os = "android"))]
     fn filter(self) -> &'static str {
         match self {
-            FileKind::Spec => "Specification (*.sp)",
-            FileKind::Stuki => "Structogram (*.st)",
+            FileKind::Spec => "Project (*.sp)",
+            FileKind::Stuki => "Web Stuki structograms (*.st)",
             FileKind::Png => "PNG image (*.png)",
         }
     }

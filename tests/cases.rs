@@ -521,10 +521,11 @@ fn fuzz_no_panics() {
             tests: vec![test.clone()],
         };
         let _ = speci_local::file::from_sp(&speci_local::file::to_sp(&doc));
-        let compact = speci_local::file::to_compact(&doc);
+        let compact = speci_local::file::to_compact(&doc, &Default::default());
         assert_eq!(
             speci_local::file::from_clipboard(&compact)
                 .unwrap()
+                .doc
                 .spec
                 .trim_end(),
             doc.spec.trim_end()

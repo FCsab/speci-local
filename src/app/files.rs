@@ -1,10 +1,11 @@
-//! The document's life cycle: new, open, save, and projects copied through the clipboard.
+//! The project's life cycle: new, open, save, and projects copied through the clipboard.
+//! A project is one `.sp` file: the specification, its test cases and the structograms.
 
 use super::{App, Replace, Tab, Tool};
 use crate::editor::Completion;
-use crate::file::{Doc, from_clipboard, from_sp, to_compact, to_sp};
+use crate::file::{Doc, Project, from_clipboard, from_project, from_sp, to_compact, to_project};
 use crate::platform::{self, FileKind};
-use crate::stuki::{self, Pending};
+use crate::stuki::{self, model::Program};
 use crate::ui;
 use eframe::egui;
 use std::path::{Path, PathBuf};
@@ -18,37 +19,30 @@ fn blank() -> Doc {
 }
 
 impl App {
+    /// Unsaved changes anywhere in the project: specification, test cases or structograms.
     pub(super) fn dirty(&self) -> bool {
-        self.doc != self.saved
+        self.doc != self.saved || self.stuki.dirty()
     }
 
     pub(super) fn file_new(&mut self) {
-        match self.tool {
-            Tool::Spec => self.request(Replace::New),
-            Tool::Stuki => self.stuki.request(Pending::New),
-        }
+        self.request(Replace::New);
     }
 
     pub(super) fn file_open(&mut self) {
-        match self.tool {
-            Tool::Spec => self.request(Replace::Open),
-            Tool::Stuki => self.stuki.request(Pending::Open),
-        }
+        self.request(Replace::Open);
     }
 
     pub(super) fn file_save(&mut self, as_new: bool) {
-        match self.tool {
-            Tool::Spec => self.save(as_new),
-            Tool::Stuki => self.stuki.save(as_new),
-        }
+        self.save(as_new);
     }
 
+    /// A `.st` file's structograms come into the current project (an undoable change); anything
+    /// else is opened as a project.
     pub(super) fn open_path(&mut self, path: PathBuf) {
         if FileKind::of(&path) == FileKind::Stuki {
             self.tool = Tool::Stuki;
-            self.stuki.request(Pending::Load(path));
+            self.stuki.import_st(&path);
         } else {
-            self.tool = Tool::Spec;
             self.request(Replace::Load(path));
         }
     }
@@ -66,28 +60,29 @@ impl App {
         match action {
             Replace::New => {
                 self.reset_doc(blank(), None);
+                self.stuki.reset(Program::default(), true);
                 self.tab = Tab::Spec;
+                self.stuki.status = "New project".into();
+                self.status = "New project".into();
             }
             Replace::Open => {
                 #[cfg(not(target_os = "android"))]
                 if let Some(p) = platform::pick_open(FileKind::Spec) {
-                    self.load(&p);
+                    self.load(&p); // already asked about unsaved changes
                 }
                 #[cfg(target_os = "android")]
                 {
-                    self.files = Some(super::android_files::FileDialog::new(
-                        false,
-                        String::new(),
-                        "sp",
-                    ));
+                    self.files = Some(super::android_files::FileDialog::new(false, String::new()));
                 }
             }
             Replace::Load(p) => self.load(&p),
-            Replace::Import(doc) => {
-                self.reset_doc(doc, None);
+            Replace::Import(project) => {
+                self.reset_doc(project.doc, None);
                 self.saved = Doc::default(); // imported, not saved anywhere yet
+                self.stuki.reset(project.stuki.unwrap_or_default(), false);
                 self.tab = Tab::Spec;
                 self.status = "Project read from the clipboard (not saved to a file yet)".into();
+                self.stuki.status = self.status.clone();
             }
         }
     }
@@ -108,27 +103,43 @@ impl App {
         self.status.clear();
     }
 
+    /// Open a project: its specification, test cases and structograms replace the current ones.
     pub(super) fn load(&mut self, path: &Path) {
         if FileKind::of(path) == FileKind::Stuki {
-            self.tool = Tool::Stuki;
-            self.stuki.request(Pending::Load(path.to_path_buf()));
-            return;
+            return self.open_path(path.to_path_buf());
         }
-        self.tool = Tool::Spec;
-        match std::fs::read_to_string(path) {
-            Ok(text) => {
-                let mut doc = from_sp(&text);
-                if doc.title.is_empty() {
-                    doc.title = path
-                        .file_stem()
-                        .map(|s| s.to_string_lossy().to_string())
-                        .unwrap_or_default();
-                }
-                self.reset_doc(doc, Some(path.to_path_buf()));
-                self.status = format!("Opened {}", path.display());
+        let text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(e) => {
+                let e = format!("Could not open {}: {e}", path.display());
+                self.stuki.status = e.clone();
+                self.status = e;
+                return;
             }
-            Err(e) => self.status = format!("Could not open {}: {e}", path.display()),
+        };
+        let (project, problem) = match from_project(&text) {
+            Ok(p) => (p, None),
+            Err(e) => {
+                let doc = from_sp(&text);
+                (Project { doc, stuki: None }, Some(e))
+            }
+        };
+        let mut doc = project.doc;
+        if doc.title.is_empty() {
+            doc.title = path
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
         }
+        self.reset_doc(doc, Some(path.to_path_buf()));
+        // structograms that can't be read are not on screen: saving would leave them out
+        self.stuki
+            .reset(project.stuki.unwrap_or_default(), problem.is_none());
+        self.status = match problem {
+            Some(e) => format!("Opened {}, but {e}", path.display()),
+            None => format!("Opened {}", path.display()),
+        };
+        self.stuki.status = self.status.clone();
     }
 
     pub(super) fn save(&mut self, as_new: bool) {
@@ -153,7 +164,7 @@ impl App {
         }
         #[cfg(target_os = "android")]
         {
-            self.files = Some(super::android_files::FileDialog::new(true, name, "sp"));
+            self.files = Some(super::android_files::FileDialog::new(true, name));
         }
     }
 
@@ -170,20 +181,25 @@ impl App {
         (!new.exists()).then_some(new)
     }
 
+    /// Write the whole project (specification, test cases and structograms) into one `.sp` file.
     pub(super) fn save_to(&mut self, path: PathBuf) {
         let path = FileKind::Spec.with_ext(path);
-        match platform::write_file(&path, to_sp(&self.doc).as_bytes()) {
+        let text = to_project(&self.doc, &self.stuki.program);
+        match platform::write_file(&path, text.as_bytes()) {
             Ok(()) => {
                 self.status = format!("Saved {}", path.display());
                 self.saved = self.doc.clone();
+                self.stuki.mark_saved();
                 self.path = Some(path);
             }
             Err(e) => self.status = format!("Could not save {}: {e}", path.display()),
         }
+        self.stuki.status = self.status.clone();
     }
 
+    /// The whole project, structograms included, as one `SPECI1:` line.
     pub(super) fn copy_project(&mut self, ctx: &egui::Context) {
-        let text = to_compact(&self.doc);
+        let text = to_compact(&self.doc, &self.stuki.program);
         self.status = format!(
             "Copied the whole project to the clipboard ({} characters)",
             text.len()
@@ -249,7 +265,7 @@ impl App {
                 g.unset.join(", ")
             );
         }
-        self.stuki.request(Pending::FromSpec(g.program, message));
+        self.stuki.replace(g.program, message + " (Ctrl+Z undoes)");
     }
 
     /// Read a copied project: a structogram goes to the Stuki tab, a specification to the other.
@@ -257,15 +273,18 @@ impl App {
         if stuki::format::looks_like_stuki(text) {
             self.tool = Tool::Stuki;
             match stuki::format::from_clipboard(text) {
-                Ok(p) => self.stuki.request(Pending::Import(p)),
+                Ok(p) => self.stuki.replace(
+                    p,
+                    "Structograms read from the clipboard into the project (Ctrl+Z undoes)",
+                ),
                 Err(e) => self.stuki.status = e,
             }
             return;
         }
         match from_clipboard(text) {
-            Ok(doc) => {
+            Ok(project) => {
                 self.tool = Tool::Spec;
-                self.request(Replace::Import(doc));
+                self.request(Replace::Import(project));
             }
             Err(_) if self.tool == Tool::Stuki => {
                 self.stuki.status = "The clipboard doesn't contain a project: expected text starting with STUKI1: (or SPECI1:), a .st file's contents, or a Stuki link with data=.".into();

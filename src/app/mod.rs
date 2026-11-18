@@ -39,13 +39,13 @@ use std::time::Duration;
 const NARROW_BELOW: f32 = 760.0;
 const AUTO_DELAY: f64 = 0.3;
 
-/// Something that replaces the current specification (asks first if it has unsaved changes).
+/// Something that replaces the current project (asks first if it has unsaved changes).
 #[derive(Clone)]
 enum Replace {
     New,
     Open,
     Load(PathBuf),
-    Import(Doc),
+    Import(crate::file::Project),
 }
 
 /// The pane shown on narrow (phone) screens, where only one fits.
@@ -332,17 +332,13 @@ impl App {
             theme::theme(ctx, self.font);
             self.applied.0 = self.font;
         }
-        let (name, dirty) = match self.tool {
-            Tool::Stuki => (self.stuki.file_name(), self.stuki.dirty()),
-            Tool::Spec => (
-                self.path
-                    .as_ref()
-                    .and_then(|p| p.file_name())
-                    .map(|f| f.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "untitled.sp".into()),
-                self.dirty(),
-            ),
-        };
+        let name = self
+            .path
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_else(|| "untitled.sp".into());
+        let dirty = self.dirty();
         let title = format!("{}{name} — speci-local", if dirty { "● " } else { "" });
         if self.applied.1 != title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));

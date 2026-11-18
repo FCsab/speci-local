@@ -200,7 +200,10 @@ fn stuki_copies_pictures() {
     );
     h.step();
     assert!(
-        h.state().stuki.status.contains("whole structogram project"),
+        h.state()
+            .stuki
+            .status
+            .contains("structograms to the clipboard"),
         "{}",
         h.state().stuki.status
     );
@@ -361,14 +364,54 @@ fn opens_and_saves_files() {
         saved
     );
 
+    // a web Stuki file: its structograms come into the project, saved with it into the .sp file
     let st = dir.0.join("Main.ST");
-    std::fs::write(&st, crate::stuki::format::to_st(&Default::default())).unwrap();
+    let mut web = crate::stuki::model::Program::default();
+    web.diagrams[0].name = crate::stuki::rich::Rich::plain("Összeg");
+    std::fs::write(&st, crate::stuki::format::to_st(&web)).unwrap();
     h.state_mut().open_path(st.clone());
     assert_eq!(h.state().tool, Tool::Stuki);
-    assert_eq!(h.state().stuki.path.as_ref(), Some(&st));
     assert_eq!(h.state().path, Some(dir.0.join("copy.sp")));
+    assert!(h.state().dirty());
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
+    h.run_steps(2);
+    assert!(!h.state().dirty(), "{}", h.state().stuki.status);
+    let both = std::fs::read_to_string(dir.0.join("copy.sp")).unwrap();
+    assert!(
+        both.starts_with(&saved) && both.contains("/*--- stuki ---\n"),
+        "{both}"
+    );
+    assert!(both.contains("Összeg"));
 
-    h.state_mut().open_path(dir.0.join("missing.sp"));
+    // New clears the whole project; opening the file brings all of it back
+    h.state_mut().run(Replace::New);
+    assert!(h.state().stuki.program.diagrams[0].name.text == "Main" && !h.state().dirty());
+    h.state_mut().open_path(dir.0.join("copy.sp"));
+    {
+        let app = h.state();
+        assert_eq!(app.doc.tests.len(), 2);
+        assert_eq!(app.stuki.program.diagrams[0].name.text, "Összeg");
+        assert!(!app.dirty() && app.status.starts_with("Opened "));
+    }
+    // unsaved structograms are unsaved changes of the project
+    h.state_mut().stuki.program.diagrams[0].name = crate::stuki::rich::Rich::plain("x");
+    assert!(h.state().dirty());
+    h.state_mut().open_path(dir.0.join("copy.sp"));
+    assert!(h.state().confirm.is_some());
+    h.state_mut().confirm = None;
+
+    // damaged structograms: the specification still opens, and the problem is reported
+    std::fs::write(&sp, both.replace("\"structograms\"", "\"x\"")).unwrap();
+    h.state_mut().stuki.mark_saved();
+    h.state_mut().open_path(sp.clone());
+    {
+        let app = h.state();
+        assert_eq!(app.doc.tests.len(), 2);
+        assert!(app.status.contains("can't be read"), "{}", app.status);
+        assert!(app.dirty());
+    }
+
+    h.state_mut().load(&dir.0.join("missing.sp"));
     let app = h.state();
     assert!(app.status.starts_with("Could not open"), "{}", app.status);
     assert_eq!(app.doc.title, "Sum of numbers");
@@ -382,10 +425,14 @@ fn imports_copied_projects() {
         spec: "Be: n∈N\nKi: x∈N\nEf: -\nUf: x=n\n".into(),
         tests: vec!["n: 1\nx: 1\n".into()],
     };
-    h.state_mut().import_text(&crate::file::to_compact(&doc));
+    let mut program = crate::stuki::model::Program::default();
+    program.diagrams[0].name = crate::stuki::rich::Rich::plain("Pasted");
+    h.state_mut()
+        .import_text(&crate::file::to_compact(&doc, &program));
     {
         let app = h.state();
         assert_eq!(app.doc, doc);
+        assert_eq!(app.stuki.program.diagrams[0].name.text, "Pasted");
         // not saved anywhere yet
         assert!(app.dirty() && app.path.is_none());
         assert!(app.status.contains("read from the clipboard"));
@@ -399,11 +446,14 @@ fn imports_copied_projects() {
     h.state_mut().import_text("nothing useful");
     assert!(h.state().status.contains("doesn't contain a project"));
 
+    // structograms alone replace only the structograms, undoably
     let program = crate::stuki::model::Program::default();
     h.state_mut()
         .import_text(&crate::stuki::format::to_compact(&program));
     assert_eq!(h.state().tool, Tool::Stuki);
     assert!(h.state().stuki.status.contains("read from the clipboard"));
+    assert_eq!(h.state().doc, doc);
+    assert_eq!(h.state().stuki.program.diagrams[0].name.text, "Main");
 }
 
 #[test]
@@ -484,7 +534,18 @@ fn structograms_from_the_spec() {
     assert!(matches!(&d.body[1].kind, Kind::Statement(t) if t.text == "db:=0"));
     assert!(matches!(&d.body[2].kind, Kind::While { cond, .. } if cond.text == "i=1..n"));
     assert!(matches!(&d.body[3].kind, Kind::Statement(t) if t.text == "Ki: db"));
-    assert!(st.dirty() && st.path.is_none());
+    assert!(
+        st.dirty() && st.status.contains("Ctrl+Z undoes"),
+        "{}",
+        st.status
+    );
+    // the structograms that were there come back with Ctrl+Z
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(h.state().stuki.program.diagrams[0].body.len(), 1);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Y);
+    h.run_steps(2);
+    assert_eq!(h.state().stuki.program.diagrams[0].body.len(), 4);
 
     // a broken specification changes nothing
     h.state_mut().doc.spec = "Be:\nn∈N\nKi:\nUf:\n".into();

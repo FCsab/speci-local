@@ -6,11 +6,10 @@ use crate::ui::{I_SAVE, I_SPEC, I_STUKI, modal_width};
 use eframe::egui::{self, Id, RichText, TextEdit};
 use std::path::PathBuf;
 
-/// Android's stand-in for the Open / Save as dialogs: the `.sp` files in the app's folder.
+/// Android's stand-in for the Open / Save as dialogs: the projects (`.sp`) in the app's folder,
+/// and for Open also the web Stuki's `.st` files.
 pub(super) struct FileDialog {
     save: bool,
-    /// `sp` (specification) or `st` (structogram)
-    ext: &'static str,
     /// file name being saved as (without `.sp`)
     name: String,
     dir: Option<PathBuf>,
@@ -20,7 +19,8 @@ pub(super) struct FileDialog {
 }
 
 impl FileDialog {
-    pub(super) fn new(save: bool, name: String, ext: &'static str) -> Self {
+    pub(super) fn new(save: bool, name: String) -> Self {
+        let exts: &[&str] = if save { &["sp"] } else { &["sp", "st"] };
         let dir = platform::documents_dir();
         let mut files: Vec<PathBuf> = dir
             .as_ref()
@@ -29,12 +29,11 @@ impl FileDialog {
             .flatten()
             .flatten()
             .map(|e| e.path())
-            .filter(|p| p.extension().is_some_and(|e| e == ext))
+            .filter(|p| p.extension().is_some_and(|e| exts.iter().any(|x| e == *x)))
             .collect();
         files.sort();
         FileDialog {
             save,
-            ext,
             name,
             dir,
             files,
@@ -44,11 +43,8 @@ impl FileDialog {
 }
 
 impl App {
-    /// Android: pick a `.sp` file to open, or a name to save as.
+    /// Android: pick a file to open, or a name to save the project as.
     pub(super) fn files_dialog(&mut self, ctx: &egui::Context) {
-        if let Some((save, name)) = self.stuki.file_request.take() {
-            self.files = Some(FileDialog::new(save, name, "st"));
-        }
         let Some(mut d) = self.files.take() else {
             return;
         };
@@ -56,7 +52,6 @@ impl App {
         let modal = egui::Modal::new(Id::unique("files-dialog")).show(ctx, |ui| {
             ui.set_width(modal_width(ctx, 520.0));
             ui.heading(if d.save { "Save as" } else { "Open" });
-            let ext = d.ext;
             if d.save {
                 ui.horizontal(|ui| {
                     ui.add(
@@ -64,28 +59,26 @@ impl App {
                             .hint_text("name")
                             .desired_width(ui.available_width() - 40.0),
                     );
-                    ui.label(format!(".{ext}"));
+                    ui.label(".sp");
                 });
             }
             egui::ScrollArea::vertical()
                 .max_height(320.0)
                 .show(ui, |ui| {
                     if d.files.is_empty() {
-                        ui.label(
-                            RichText::new(if ext == "st" {
-                                "No saved structograms yet."
-                            } else {
-                                "No saved specifications yet."
-                            })
-                            .weak(),
-                        );
+                        ui.label(RichText::new("No saved projects yet.").weak());
                     }
                     for f in &d.files {
                         let stem = f.file_stem().unwrap_or_default().to_string_lossy();
                         let chosen = d.save && stem == d.name.trim();
-                        let icon = if ext == "st" { I_STUKI } else { I_SPEC };
+                        let st = f.extension().is_some_and(|e| e == "st");
+                        let (icon, label) = if st {
+                            (I_STUKI, format!("{stem}.st"))
+                        } else {
+                            (I_SPEC, stem.to_string())
+                        };
                         if ui
-                            .selectable_label(chosen, format!("{icon}  {stem}"))
+                            .selectable_label(chosen, format!("{icon}  {label}"))
                             .clicked()
                         {
                             if d.save {
@@ -121,21 +114,7 @@ impl App {
             });
         });
         if let Some(p) = open {
-            if d.ext == "st" {
-                self.stuki.load(&p);
-            } else {
-                self.load(&p);
-            }
-        } else if save && d.ext == "st" {
-            if let Some(dir) = &d.dir {
-                self.stuki
-                    .save_to(dir.join(format!("{}.st", d.name.trim())));
-            }
-            if let Some(next) = self.stuki.after_save.take()
-                && !self.stuki.dirty()
-            {
-                self.stuki.request(next);
-            }
+            self.load(&p); // already asked about unsaved changes
         } else if save {
             if let Some(dir) = &d.dir {
                 self.save_to(dir.join(format!("{}.sp", d.name.trim())));

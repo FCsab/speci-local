@@ -157,7 +157,7 @@ fn actions_edit_the_program_and_can_be_undone() {
 }
 
 #[test]
-fn saves_and_loads_st_files() {
+fn st_files_and_pastes_replace_the_structograms_undoably() {
     let dir = std::env::temp_dir().join(format!("speci-local-stuki-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let mut st = Stuki::default();
@@ -167,32 +167,40 @@ fn saves_and_loads_st_files() {
     st.program.diagrams[0].name = Rich::plain("  ");
     assert_eq!(st.suggested_name(), "structogram");
     assert!(st.dirty());
+    st.mark_saved();
+    assert!(!st.dirty());
 
-    st.save_to(dir.join("sum"));
-    let path = dir.join("sum.st");
-    assert_eq!(st.path.as_ref(), Some(&path));
-    assert!(!st.dirty() && st.status.starts_with("Saved "));
-    assert_eq!(st.file_name(), "sum.st");
-    assert_eq!(st.suggested_name(), "sum");
-
-    let first = st.program.diagrams[0].body[0].id;
-    st.program.add_next_to(first, Tag::If, true).unwrap();
-    assert!(st.dirty());
-    st.request(Pending::Load(path.clone()));
-    assert!(st.confirm.is_some());
-    st.confirm = None;
-    st.load(&path);
-    assert!(!st.dirty() && st.undo.is_empty());
-    assert!(st.program.diagrams[0].body[0].is_noop());
+    // a .st file from the web app comes into the project as one undoable step
+    let mut web = Program::default();
+    web.diagrams[0].name = Rich::plain("Web");
+    let path = dir.join("web.st");
+    std::fs::write(&path, format::to_st(&web)).unwrap();
+    st.import_st(&path);
+    assert_eq!(st.program.diagrams[0].name.text, "Web");
+    assert!(
+        st.dirty() && st.status.contains("into the project"),
+        "{}",
+        st.status
+    );
+    st.undo();
+    assert_eq!(st.program.diagrams[0].name.text, "  ");
+    assert!(!st.dirty());
+    st.redo();
+    assert_eq!(st.program.diagrams[0].name.text, "Web");
 
     std::fs::write(&path, "not json").unwrap();
-    st.load(&path);
+    st.import_st(&path);
     assert!(
         st.status.contains("not a structogram file"),
         "{}",
         st.status
     );
-    st.request(Pending::New);
-    assert!(st.path.is_none() && st.status == "New structogram");
+    assert_eq!(st.program.diagrams[0].name.text, "Web");
+
+    // a project opened or started: saved, with no history
+    st.reset(Program::default(), true);
+    assert!(!st.dirty() && st.undo.is_empty() && st.redo.is_empty());
+    st.reset(web, false);
+    assert!(st.dirty());
     let _ = std::fs::remove_dir_all(&dir);
 }

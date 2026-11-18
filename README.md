@@ -194,9 +194,9 @@ A futás üzenettel megáll, ha egy szöveg nem olvasható lépésként, egy vá
 
 Fájlt a Ctrl+O-val, az ablakra húzva, vagy a parancssorból (`speci-local fajl.sp`) lehet megnyitni. Kilépéskor a munkamenet automatikusan mentődik.
 
-### `.sp`: specifikáció a teszteseteivel
+### `.sp`: az egész projekt egy fájlban
 
-A `.sp` fájl egyszerű szöveg: a specifikáció, amelyben minden teszteset megjegyzésként szerepel.
+Egy projekt egyetlen `.sp` fájl: a specifikáció, a tesztesetei és a Stuki fül struktogramjai. A mentés, a megnyitás és az új projekt mindhármon egyszerre dolgozik, bármelyik fülről. A fájl egyszerű szöveg: a specifikáció, amelyben minden teszteset és a struktogramok megjegyzésként szerepelnek.
 
 ```text
 // title: Páratlan számok
@@ -209,22 +209,30 @@ n: 5
 szamok: [3, 72, 81, 4, 5]
 db: 3
 ---*/
+
+/*--- stuki ---
+{
+  "nodes": { … },
+  "structograms": [ … ],
+  …
+}
+---*/
 ```
 
-Mivel a tesztesetek megjegyzések, az egész fájl továbbra is érvényes specifikáció. Változtatás nélkül beilleszthető az ELTE szerkesztőjébe.
+Mivel a tesztesetek és a struktogramok megjegyzések, az egész fájl továbbra is érvényes specifikáció. Változtatás nélkül beilleszthető az ELTE szerkesztőjébe. A struktogramok a webes Stuki JSON-jában vannak (lásd lent). Ha a Stuki fülhöz nem nyúltál, a fájlban nincs `stuki` blokk.
 
 A feladatáról elnevezett fájl követi a feladatot: ha átnevezed a feladatot és mentesz, a fájl is az új nevet kapja (kivéve, ha már van ilyen nevű fájl).
 
-### `.st`: struktogramok
+### `.st`: struktogramok a webes Stukiból
 
-A `.st` fájl a webalkalmazás saját állapota JSON-ban (az általa tárolt `nodes` és `structograms`, valamint a színpaletták), így ugyanazok az adatok mozognak a kettő között. A színes szöveg a webalkalmazás által használt HTML-ként marad meg (`<span style="color: rgb(255, 0, 0);">…</span>`).
+Egy `.st` fájl megnyitása (vagy az ablakra húzása) a struktogramjait beolvassa az aktuális projektbe, a meglévők helyére; a Stuki fülön a Ctrl+Z visszahozza a korábbiakat, a következő mentés pedig a `.sp` fájlba írja őket. A `.st` fájl a webalkalmazás saját állapota JSON-ban (az általa tárolt `nodes` és `structograms`, valamint a színpaletták), így ugyanazok az adatok mozognak a kettő között. A színes szöveg a webalkalmazás által használt HTML-ként marad meg (`<span style="color: rgb(255, 0, 0);">…</span>`).
 
 ### Egy sor az egész projektre
 
-- A Specification fülön a másolás gomb (Ctrl+Shift+C) a specifikációt és az összes tesztesetet egyetlen tömörített sorként, `SPECI1:…` alakban teszi a vágólapra. Csetben könnyű elküldeni.
-- A Stuki fülön a **Copy as text**, a Ctrl+Shift+C vagy a Shift+kattintás a másolás gombra egy `STUKI1:…` sort másol.
+- A Specification fülön a másolás gomb (Ctrl+Shift+C) az egész projektet (a specifikációt, az összes tesztesetet és a struktogramokat) egyetlen tömörített sorként, `SPECI1:…` alakban teszi a vágólapra. Csetben könnyű elküldeni.
+- A Stuki fülön a **Copy as text**, a Ctrl+Shift+C vagy a Shift+kattintás a másolás gombra csak a struktogramokat másolja, egy `STUKI1:…` sorként.
 - A beállítások menü **Open in web editor** pontja az aktuális fül projektjét megnyitja az ELTE webes szerkesztőjében; a **Copy web editor link** a linket másolja. A webes szerkesztőnek nincs címe, ezért a specifikáció címe az első megjegyzéssorba kerül.
-- A beillesztés (Ctrl+Shift+V) mindkét sort beolvassa, és a megfelelő fülön nyitja meg. Elfogad sima specifikációszöveget, `.st` fájl szövegét és a webalkalmazások megosztási linkjeit is (`…/specifikacio/v1/?data=…`, `…/stuki/v1/?data=…`).
+- A beillesztés (Ctrl+Shift+V) mindkét sort beolvassa, és a megfelelő fülön nyitja meg: a `SPECI1:` sor az egész projektet lecseréli, a `STUKI1:` sor csak a struktogramokat (ezt a Ctrl+Z visszavonja). Elfogad sima specifikációszöveget, `.st` fájl szövegét és a webalkalmazások megosztási linkjeit is (`…/specifikacio/v1/?data=…`, `…/stuki/v1/?data=…`).
 - Ha a rendszer vágólapja nem olvasható, megnyílik egy mező, ahová Ctrl+V-vel be lehet illeszteni.
 
 ## Billentyűparancsok
@@ -233,7 +241,7 @@ macOS-en a Ctrl helyett ⌘, az Alt helyett ⌥ használandó.
 
 | Billentyű | Művelet |
 | --- | --- |
-| Ctrl+N / Ctrl+O | Új / megnyitás, az aktuális fülön |
+| Ctrl+N / Ctrl+O | Új projekt / projekt megnyitása |
 | Ctrl+S / Ctrl+Shift+S | Mentés / mentés másként |
 | Ctrl+Shift+C / Ctrl+Shift+V | Az egész projekt másolása / beillesztése egy sorként |
 | Ctrl+Enter | A specifikáció kiértékelése |
@@ -356,10 +364,10 @@ A CI minden pushnál lefuttatja mindhármat, megépíti az asztali alkalmazást 
 | `src/parser/` | a specifikációk lexere, blokkokra bontója, nyelvtana és statikus ellenőrzései |
 | `src/eval/` | a kiértékelő: értékek, műveletek, tételek, függvényhívások, a Stepper nyomkövetése |
 | `src/data.rs`, `src/runner.rs` | a YAML-tesztesetek beolvasása, futtatása és az ítélet magyarázata |
-| `src/file.rs`, `src/compact.rs` | `.sp` fájlok és a `SPECI1:` sor |
+| `src/file.rs`, `src/compact.rs` | `.sp` projektfájlok és a `SPECI1:` sor |
 | `src/editor/` | a kódszerkesztő: kiemelés, kiegészítés és Vim-billentyűk (`vim/`) |
 | `src/app/` | az ablak: eszköztár, panelek, eredmények, Stepper, párbeszédablakok, háttérben futó kiértékelés |
-| `src/stuki/` | a struktogramszerkesztő: modell, elrendezés, vászon, színek, PNG és `.st` fájlok |
+| `src/stuki/` | a struktogramszerkesztő: modell, elrendezés, vászon, színek, PNG és a webes Stuki JSON-ja (`.st` fájlok és a `.sp` fájlok `stuki` blokkja) |
 | `src/stuki/run/` | struktogramok futtatása teszteseteken: fordító és gép |
 | `src/platform.rs` | ami az asztali rendszerek és az Android között eltér |
 | `android/` | az androidos burok crate |

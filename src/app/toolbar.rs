@@ -54,26 +54,23 @@ impl App {
             for &act in group {
                 let stuki = self.tool == Tool::Stuki;
                 let (icon, tip) = match act {
-                    Act::New if stuki => (I_NEW, "New structogram (Ctrl+N)"),
-                    Act::Open if stuki => (I_OPEN, "Open a .st file (Ctrl+O)"),
-                    Act::New => (I_NEW, "New specification (Ctrl+N)"),
-                    Act::Open => (I_OPEN, "Open a .sp file (Ctrl+O)"),
+                    Act::New => (I_NEW, "New project (Ctrl+N)"),
+                    Act::Open => (
+                        I_OPEN,
+                        "Open a project, .sp (Ctrl+O)\nA .st file's structograms come into the current project",
+                    ),
                     Act::Copy if stuki => (
                         I_COPY,
-                        "Copy the selected structogram as a picture (Ctrl+C)\nShift-click: copy the whole project as one text line (Ctrl+Shift+C)",
+                        "Copy the selected structogram as a picture (Ctrl+C)\nShift-click: copy the structograms as one text line (Ctrl+Shift+C)",
                     ),
                     Act::Copy => (
                         I_COPY,
-                        "Copy the whole project to the clipboard as one compact line (Ctrl+Shift+C)",
+                        "Copy the whole project (specification, test cases and structograms) to the clipboard as one compact line (Ctrl+Shift+C)",
                     ),
                     Act::Paste => (I_PASTE, "Read a project from the clipboard (Ctrl+Shift+V)"),
-                    Act::Save if stuki => (
-                        I_SAVE,
-                        "Save as .st (Ctrl+S)\nShift-click: Save as… (Ctrl+Shift+S)",
-                    ),
                     Act::Save => (
                         I_SAVE,
-                        "Save (Ctrl+S)\nShift-click: Save as… (Ctrl+Shift+S)",
+                        "Save the specification, test cases and structograms into one .sp file (Ctrl+S)\nShift-click: Save as… (Ctrl+Shift+S)",
                     ),
                 };
                 if ui
@@ -153,38 +150,23 @@ impl App {
                 format!("{I_SPEC}  Specification")
             },
         )
-        .on_hover_text("Specification editor with test cases (.sp)");
+        .on_hover_text("Specification editor with test cases");
         ui.selectable_value(&mut self.tool, Tool::Stuki, format!("{I_STUKI}  Stuki"))
-            .on_hover_text("Structogram editor (.st)");
+            .on_hover_text("Structogram editor (saved in the same .sp file)");
     }
 
-    /// The task title or the file name, at most `width` wide, then the unsaved-changes dot.
+    /// The task title, at most `width` wide, then the unsaved-changes dot (for the whole project).
     fn title(&mut self, ui: &mut egui::Ui, width: f32) {
         // room for the dot, so it stays clear of what comes after
         let width = width.min(ui.available_width() - 2.0 * self.font).max(0.0);
-        let dirty = match self.tool {
-            Tool::Stuki => {
-                ui.scope(|ui| {
-                    ui.set_max_width(width);
-                    ui.add(
-                        egui::Label::new(RichText::new(self.stuki.file_name()).strong()).truncate(),
-                    )
-                    .on_hover_text("File of the current structogram");
-                });
-                self.stuki.dirty()
-            }
-            Tool::Spec => {
-                ui.add(
-                    TextEdit::singleline(&mut self.doc.title)
-                        .hint_text("Untitled task")
-                        .font(TextStyle::Heading)
-                        .frame(egui::Frame::NONE)
-                        .desired_width(width),
-                );
-                self.dirty()
-            }
-        };
-        if dirty {
+        ui.add(
+            TextEdit::singleline(&mut self.doc.title)
+                .hint_text("Untitled task")
+                .font(TextStyle::Heading)
+                .frame(egui::Frame::NONE)
+                .desired_width(width),
+        );
+        if self.dirty() {
             ui::unsaved_dot(ui);
         }
     }
@@ -307,13 +289,12 @@ impl App {
 
     pub(super) fn status_bar(&mut self, ui: &mut egui::Ui) {
         if self.tool == Tool::Stuki {
-            let st = &self.stuki;
             ui::status_bar(
                 ui,
-                st.dirty(),
-                &st.status,
-                st.path.as_deref(),
-                "structogram",
+                self.dirty(),
+                &self.stuki.status,
+                self.path.as_deref(),
+                "project",
                 None,
                 None,
             );
@@ -335,7 +316,7 @@ impl App {
             self.dirty(),
             &self.status,
             self.path.as_deref(),
-            "specification",
+            "project",
             cursor,
             mode.as_deref(),
         );

@@ -194,9 +194,9 @@ A run is stopped with a message when a text can't be read as a step, a variable 
 
 Open a file with Ctrl+O, by dragging it onto the window, or from the command line (`speci-local file.sp`). Your session is also autosaved when you quit.
 
-### `.sp`: a specification with its test cases
+### `.sp`: the whole project in one file
 
-A `.sp` file is plain text: the specification, with each test case stored as a comment.
+A project is one `.sp` file: the specification, its test cases and the structograms of the Stuki tab. Save, Open and New work on all three at once, from either tab. The file is plain text: the specification, with each test case and the structograms stored as comments.
 
 ```text
 // title: Odd numbers
@@ -209,22 +209,30 @@ n: 5
 szamok: [3, 72, 81, 4, 5]
 db: 3
 ---*/
+
+/*--- stuki ---
+{
+  "nodes": { … },
+  "structograms": [ … ],
+  …
+}
+---*/
 ```
 
-Because the test cases are comments, the whole file is still a valid specification. You can paste it into the ELTE editor as-is.
+Because the test cases and the structograms are comments, the whole file is still a valid specification. You can paste it into the ELTE editor as-is. The structograms are the web Stuki's JSON (see below). A project whose Stuki tab was never touched has no `stuki` block.
 
 A file named after its task follows the task: rename the task, save, and the file gets the new name (unless another file already has it).
 
-### `.st`: structograms
+### `.st`: structograms from the web Stuki
 
-A `.st` file is the web app's own state as JSON (the `nodes` and `structograms` it keeps, plus the color palettes), so the same data moves between the two. Colored text is kept as the HTML the web app uses (`<span style="color: rgb(255, 0, 0);">…</span>`).
+Opening a `.st` file (or dropping it on the window) reads its structograms into the current project in place of the ones there; Ctrl+Z on the Stuki tab brings those back, and the next save writes them into the `.sp` file. A `.st` file is the web app's own state as JSON (the `nodes` and `structograms` it keeps, plus the color palettes), so the same data moves between the two. Colored text is kept as the HTML the web app uses (`<span style="color: rgb(255, 0, 0);">…</span>`).
 
 ### One line for a whole project
 
-- On the Specification tab, the copy button (Ctrl+Shift+C) puts the specification and all test cases on the clipboard as one compressed line, `SPECI1:…`. It's handy for sending through chat.
-- On the Stuki tab, **Copy as text**, Ctrl+Shift+C or Shift-clicking the copy button copies one `STUKI1:…` line.
+- On the Specification tab, the copy button (Ctrl+Shift+C) puts the whole project (the specification, all test cases and the structograms) on the clipboard as one compressed line, `SPECI1:…`. It's handy for sending through chat.
+- On the Stuki tab, **Copy as text**, Ctrl+Shift+C or Shift-clicking the copy button copies only the structograms, as one `STUKI1:…` line.
 - **Open in web editor** in the settings menu opens the current tab's project in the ELTE web editor; **Copy web editor link** copies that link instead. The web editor has no title, so a specification's title goes in as its first comment line.
-- Paste (Ctrl+Shift+V) reads either line and opens it on the right tab. It also accepts plain specification text, a `.st` file's text, and the web apps' share links (`…/specifikacio/v1/?data=…`, `…/stuki/v1/?data=…`).
+- Paste (Ctrl+Shift+V) reads either line and opens it on the right tab: a `SPECI1:` line replaces the whole project, a `STUKI1:` line only the structograms (Ctrl+Z undoes that). It also accepts plain specification text, a `.st` file's text, and the web apps' share links (`…/specifikacio/v1/?data=…`, `…/stuki/v1/?data=…`).
 - If the system clipboard can't be read, a box opens where you can paste with Ctrl+V instead.
 
 ## Keyboard shortcuts
@@ -233,7 +241,7 @@ On macOS, use ⌘ instead of Ctrl and ⌥ instead of Alt.
 
 | Shortcut | Action |
 | --- | --- |
-| Ctrl+N / Ctrl+O | New / open, on the current tab |
+| Ctrl+N / Ctrl+O | New / open project |
 | Ctrl+S / Ctrl+Shift+S | Save / save as |
 | Ctrl+Shift+C / Ctrl+Shift+V | Copy / paste the whole project as one line |
 | Ctrl+Enter | Evaluate the specification |
@@ -356,10 +364,10 @@ CI runs all three on every push, builds the desktop app on Windows, Linux and ma
 | `src/parser/` | lexer, block splitter, grammar and static checks of specifications |
 | `src/eval/` | the evaluator: values, operators, patterns, function calls, stepper trace |
 | `src/data.rs`, `src/runner.rs` | reading YAML test cases, running them and explaining the verdict |
-| `src/file.rs`, `src/compact.rs` | `.sp` files and the `SPECI1:` line |
+| `src/file.rs`, `src/compact.rs` | `.sp` project files and the `SPECI1:` line |
 | `src/editor/` | the code editor: highlighting, completion and Vim keys (`vim/`) |
 | `src/app/` | the window: toolbar, panes, results, stepper, dialogs, background evaluation |
-| `src/stuki/` | the structogram editor: model, layout, canvas, colors, PNG and `.st` files |
+| `src/stuki/` | the structogram editor: model, layout, canvas, colors, PNG, and the web Stuki's JSON (`.st` files and the `stuki` block of `.sp` files) |
 | `src/stuki/run/` | running structograms on test cases: compiler and machine |
 | `src/platform.rs` | what differs between the desktop systems and Android |
 | `android/` | the Android wrapper crate |

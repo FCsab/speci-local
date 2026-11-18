@@ -8,7 +8,6 @@ use eframe::egui::{self, Id, TextEdit, TextStyle};
 impl App {
     pub(super) fn dialogs(&mut self, ctx: &egui::Context) {
         self.confirm_dialog(ctx);
-        self.stuki.confirm_dialog(ctx);
         #[cfg(target_os = "android")]
         self.files_dialog(ctx);
         self.paste_dialog(ctx);
@@ -29,7 +28,7 @@ impl App {
         let Some(action) = self.confirm.clone() else {
             return;
         };
-        let Some(choice) = ui::unsaved_dialog(ctx, "discard-dialog", "specification") else {
+        let Some(choice) = ui::unsaved_dialog(ctx, "discard-dialog", "project") else {
             return;
         };
         self.confirm = None;

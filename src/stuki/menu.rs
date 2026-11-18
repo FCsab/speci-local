@@ -309,7 +309,7 @@ pub(super) fn help(ui: &mut egui::Ui) {
         "Hovering a structogram shows a bar above it: × deletes it, F shows the function header, V the local declarations, R the return value. The green + adds a new structogram.",
         "Colors: the text colors apply to the selected part of the text you clicked into last (or all of it), the element background to the selected element, the structogram background to its structogram. Edit changes a palette, which is saved with the project.",
         "Copy image (Ctrl+C) and Export PNG work on the structogram of the selected element; right-click a structogram, or use the picture button above it, to copy that one. Pictures are light (white background) unless you turn that off in the settings. Copy as text (Ctrl+Shift+C) copies the whole project as a STUKI1: line instead. Pinch or Ctrl+wheel zooms; two fingers move the editor on touch screens. Ctrl+Z / Ctrl+Y undo and redo, Delete removes the selected element.",
-        "Save writes a .st file (the web app's own format). Copy puts the whole project on the clipboard as one STUKI1: line; Paste reads that, a .st file's text, or a Stuki share link (…/stuki/v1/?data=…).",
+        "Save writes the whole project (specification, test cases and structograms) into one .sp file; Open reads it back, and also reads the structograms of a .st file (the web app's own format) into the project. Copy as text puts the structograms on the clipboard as one STUKI1: line; Paste reads that, a .st file's text, or a Stuki share link (…/stuki/v1/?data=…). Pasted structograms replace the current ones; Ctrl+Z brings those back.",
     ] {
         ui.label(p);
     }

@@ -3,8 +3,10 @@
 //!
 //! Elements are dragged in from the Elements menu (or inserted next to the selected one with
 //! ↑ / ↓), texts are edited in place, and the colors, distances and other appearance settings
-//! match the web app. Projects are saved as `.st` files (the web app's own JSON), copied to the
-//! clipboard as one `STUKI1:` line, and pictures are copied or exported as PNG.
+//! match the web app. The structograms are saved with the specification in the project's `.sp`
+//! file (the web app's own JSON in a comment block), copied to the clipboard as one `STUKI1:`
+//! line, and pictures are copied or exported as PNG. `.st` files (the web app's format) can be
+//! read into a project.
 
 mod canvas;
 mod checks;
@@ -28,21 +30,9 @@ use layout::Del;
 use model::{Diagram, Node, Place, Program, Tag, TextKey};
 use serde::{Deserialize, Serialize};
 use settings::{Look, Settings};
-use std::path::PathBuf;
 
 const GREEN: Color32 = Color32::from_rgb(0, 128, 0);
 const UNDO_LIMIT: usize = 200;
-
-/// Something that replaces the current structogram (asks first if it has unsaved changes).
-#[derive(Clone)]
-pub enum Pending {
-    New,
-    Open,
-    Load(PathBuf),
-    Import(Program),
-    /// Built from the specification (From spec), with the message for the status bar.
-    FromSpec(Program, String),
-}
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Drag {
@@ -92,9 +82,9 @@ fn text_id(key: TextKey) -> Id {
 #[serde(default)]
 pub struct Stuki {
     pub program: Program,
-    /// [`Program::content`] of what is on disk; differs from the program's: unsaved changes.
+    /// [`Program::content`] of what is in the project's file; differs from the program's:
+    /// unsaved changes.
     saved: String,
-    pub path: Option<PathBuf>,
     pub settings: Settings,
     show_colors: bool,
     show_help: bool,
@@ -121,8 +111,6 @@ pub struct Stuki {
     #[serde(skip)]
     editing: Option<(Pal, Vec<String>)>,
     #[serde(skip)]
-    confirm: Option<Pending>,
-    #[serde(skip)]
     previews: Vec<(Tag, Diagram)>,
     /// The structogram that was right-clicked (its context menu works on it).
     #[serde(skip)]
@@ -133,12 +121,6 @@ pub struct Stuki {
     #[cfg(test)]
     #[serde(skip)]
     pub(crate) seen: (Vec<(u64, Rect)>, Vec<Rect>),
-    /// Android: show the app's own Open (false) / Save as (true) list, with this file name.
-    #[serde(skip)]
-    pub file_request: Option<(bool, String)>,
-    /// What to do once the Android "Save as" list has saved the file.
-    #[serde(skip)]
-    pub after_save: Option<Pending>,
     /// The Konami code was typed: the app builds the structograms from its specification.
     #[serde(skip)]
     pub wants_spec: bool,
@@ -161,7 +143,6 @@ impl Default for Stuki {
         Stuki {
             saved: program.content(),
             program,
-            path: None,
             settings: Settings::default(),
             show_colors: false,
             show_help: false,
@@ -175,14 +156,11 @@ impl Default for Stuki {
             redo: vec![],
             drag: None,
             editing: None,
-            confirm: None,
             previews: vec![],
             menu_diagram: None,
             status: String::new(),
             #[cfg(test)]
             seen: Default::default(),
-            file_request: None,
-            after_save: None,
             wants_spec: false,
             keys: vec![],
         }
@@ -192,14 +170,6 @@ impl Default for Stuki {
 impl Stuki {
     pub fn dirty(&self) -> bool {
         !self.program.content_is(&self.saved)
-    }
-
-    pub fn file_name(&self) -> String {
-        self.path
-            .as_ref()
-            .and_then(|p| p.file_name())
-            .map(|f| f.to_string_lossy().to_string())
-            .unwrap_or_else(|| "untitled.st".into())
     }
 
     fn push_undo(&mut self) {
@@ -229,24 +199,6 @@ impl Stuki {
         self.selected = None;
         self.armed = None;
         self.drag = None;
-    }
-
-    fn reset(&mut self, program: Program, path: Option<PathBuf>, saved: bool) {
-        self.saved = if saved {
-            program.content()
-        } else {
-            String::new()
-        };
-        self.program = program;
-        self.path = path;
-        self.undo.clear();
-        self.redo.clear();
-        self.selected = None;
-        self.focus_diagram = None;
-        self.last_text = None;
-        self.armed = None;
-        self.drag = None;
-        self.editing = None;
     }
 
     // ---------------------------------------------------------------- UI

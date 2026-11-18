@@ -83,7 +83,7 @@ A native app for Windows, Linux, macOS and Android. It needs no login and no net
 - **Scaffold** inserts a `name: ` line for every variable missing from the test case. It skips constants, and pre-fills `[]` for arrays and `{field: }` for records.
 - **Stepper** (Evaluation pane) replays one test case reduction by reduction. The part being evaluated is highlighted, the loop variables are listed, and `↓`/`↑` mark entering and leaving your functions. Step with ←/→. *Step list* shows every step.
 - **Editor:** completion for headers, set names after `∈`, declared names, and pattern snippets (`SUM` → `SUM(i=1..n, |)`). Alt+1…Alt+6 insert `∈ ∀ ∃ ≠ ≤ ≥`. Typing `forall`, `exists` or `leq` and completing turns them into symbols. `<=`, `>=` and `!=` typed by hand become `≤ ≥ ≠`, so type SELECT's `>=` through the `SELECT` completion snippet.
-- **`.sp` files** are plain specification text with each test case stored as a comment, so the whole file is still a valid specification and can be pasted into the online editor as-is:
+- **`.sp` files** hold the whole project: plain specification text, with each test case (and, if the Stuki tab was used, the structograms as a `/*--- stuki --- {JSON} ---*/` block) stored as a comment, so the whole file is still a valid specification and can be pasted into the online editor as-is:
 
   ```text
   // title: Páratlanok
@@ -107,8 +107,8 @@ A native app for Windows, Linux, macOS and Android. It needs no login and no net
   ---*/
   ```
 
-- **Sharing:** Ctrl+Shift+C copies the whole project as one `SPECI1:…` line, and Ctrl+Shift+V pastes it back. Paste also accepts plain specification text and the web editors' `?data=` links. *Open in web editor* and *Copy web editor link* hand the project to the online editor.
-- **Stuki tab:** draw structograms and **Run tests** on the same test cases. A test passes when the outputs computed by the structogram satisfy the postcondition.
+- **Sharing:** Ctrl+Shift+C copies the whole project (structograms included) as one `SPECI1:…` line, and Ctrl+Shift+V pastes it back. Paste also accepts plain specification text and the web editors' `?data=` links. *Open in web editor* and *Copy web editor link* hand the project to the online editor.
+- **Stuki tab:** draw structograms (saved in the same `.sp` file; a web Stuki `.st` file can be opened into the project) and **Run tests** on the same test cases. A test passes when the outputs computed by the structogram satisfy the postcondition.
 
 ---
 
