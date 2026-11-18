@@ -278,9 +278,9 @@ impl Vim {
                 if ch != ESC {
                     self.save(ed);
                     let (s, e) = self.selection(&ed.t, p);
-                    for k in s..e {
-                        if ed.t[k] != '\n' {
-                            ed.t[k] = ch;
+                    for c in &mut ed.t[s..e] {
+                        if *c != '\n' {
+                            *c = ch;
                         }
                     }
                     ed.changed = true;
